@@ -27,7 +27,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/dashboard',                    label: 'Dashboard',     icon: BarChart3,   exact: true },
+  { href: '/dashboard',                    label: 'Inicio',        icon: BarChart3,   exact: true },
   { href: '/dashboard/productos',          label: 'Productos',     icon: BoxesIcon },
   { href: '/caja',                         label: 'Caja',          icon: ShoppingCart },
   { href: '/empleados/ingreso-mercaderia', label: 'Ingreso stock', icon: PackagePlus },
