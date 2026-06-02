@@ -51,6 +51,7 @@ export interface Profile {
   establishment_id: string | null;
   avatar_url: string | null;
   is_active: boolean;
+  travel_mode: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -29,7 +29,7 @@ export async function signInAction(email: string, password: string): Promise<Sig
   const admin = createAdminClient();
   const { data: profile, error: profileError } = await admin
     .from('profiles')
-    .select('role, is_active')
+    .select('role, is_active, travel_mode')
     .eq('id', authData.user.id)
     .single();
 
@@ -46,9 +46,19 @@ export async function signInAction(email: string, password: string): Promise<Sig
     };
   }
 
-  const role = profile.role as UserRole;
+  const role       = profile.role as UserRole;
+  const travelMode = (profile as { travel_mode?: boolean }).travel_mode ?? false;
 
   const cookieStore = cookies();
+  const cookieOpts = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    maxAge: 60 * 60 * 24 * 7,
+    path: '/',
+  };
+
+  cookieStore.set('user-travel-mode', String(travelMode), cookieOpts);
   cookieStore.set('user-role', role, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -57,7 +67,11 @@ export async function signInAction(email: string, password: string): Promise<Sig
     path: '/',
   });
 
-  return { success: true, role, redirectTo: ROLE_HOME[role] };
+  const redirectTo = travelMode && role === 'employee'
+    ? '/empleados/reparto'
+    : ROLE_HOME[role];
+
+  return { success: true, role, redirectTo };
 }
 
 export async function signOutAction(): Promise<void> {

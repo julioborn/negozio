@@ -3,11 +3,12 @@
 import { useState } from 'react';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Plus, UserCheck, UserMinus, UserX } from 'lucide-react';
+import { Loader2, Plus, Truck, UserCheck, UserMinus, UserX } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 
 import { Modal } from '@/components/ui/Modal';
+import { Toggle } from '@/components/ui/Toggle';
 import { useConfigUsers } from '@/hooks/useConfigUsers';
 import { createUserAction } from '@/lib/supabase/user_actions';
 import { cn } from '@/lib/utils';
@@ -29,7 +30,7 @@ type AddUserData = z.infer<typeof addUserSchema>;
 interface Props { establishmentId: string }
 
 export function UsersTab({ establishmentId }: Props) {
-  const { users, isLoading, setActive, refetch } = useConfigUsers(establishmentId);
+  const { users, isLoading, setActive, setTravelMode, refetch } = useConfigUsers(establishmentId);
   const [modalOpen, setModalOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -72,13 +73,15 @@ export function UsersTab({ establishmentId }: Props) {
           <table className="min-w-full divide-y divide-slate-100">
             <thead className="bg-slate-50">
               <tr>
-                {['Usuario', 'Rol', 'Estado', ''].map((h) => (
+                {['Usuario', 'Rol', 'Estado', 'Modo viaje', ''].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {users.map((u) => <UserRow key={u.id} user={u} onSetActive={setActive} />)}
+              {users.map((u) => (
+                <UserRow key={u.id} user={u} onSetActive={setActive} onSetTravelMode={setTravelMode} />
+              ))}
             </tbody>
           </table>
         </div>
@@ -133,14 +136,27 @@ export function UsersTab({ establishmentId }: Props) {
   );
 }
 
-function UserRow({ user, onSetActive }: { user: Profile; onSetActive: (id: string, v: boolean) => Promise<boolean> }) {
-  const [loading, setLoading] = useState(false);
+interface RowProps {
+  user: Profile;
+  onSetActive: (id: string, v: boolean) => Promise<boolean>;
+  onSetTravelMode: (id: string, v: boolean) => Promise<boolean>;
+}
+
+function UserRow({ user, onSetActive, onSetTravelMode }: RowProps) {
+  const [loading, setLoading]           = useState(false);
+  const [travelLoading, setTravelLoad]  = useState(false);
   const roleInfo = ROLE_LABELS[user.role] ?? { label: user.role, color: 'bg-slate-100 text-slate-700' };
 
   async function toggle() {
     setLoading(true);
     await onSetActive(user.id, !user.is_active);
     setLoading(false);
+  }
+
+  async function toggleTravel(v: boolean) {
+    setTravelLoad(true);
+    await onSetTravelMode(user.id, v);
+    setTravelLoad(false);
   }
 
   return (
@@ -161,6 +177,26 @@ function UserRow({ user, onSetActive }: { user: Profile; onSetActive: (id: strin
           {user.is_active ? 'Activo' : 'Inactivo'}
         </span>
       </td>
+
+      {/* Modo viaje — solo para empleados */}
+      <td className="px-4 py-3">
+        {user.role === 'employee' ? (
+          <div className="flex items-center gap-2">
+            {travelLoading
+              ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              : <Toggle checked={user.travel_mode ?? false} onChange={toggleTravel} size="sm" />
+            }
+            {(user.travel_mode ?? false) && (
+              <span className="flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                <Truck className="h-3 w-3" /> Viaje
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-slate-300">—</span>
+        )}
+      </td>
+
       <td className="px-4 py-3 text-right">
         <button onClick={toggle} disabled={loading}
           title={user.is_active ? 'Desactivar' : 'Activar'}

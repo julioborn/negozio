@@ -91,20 +91,19 @@ export function useRolePermissions() {
         ];
       });
 
-      const { error } = await supabase.from('role_permissions').upsert(
-        { role, permission, is_allowed: value },
-        { onConflict: 'role,permission' }
-      );
+      // Usamos RPC con SECURITY DEFINER para saltear problemas de RLS
+      const { data: ok, error } = await supabase.rpc('set_role_permission', {
+        p_role:       role,
+        p_permission: permission,
+        p_is_allowed: value,
+      });
+      const rpcFailed = error || ok === false;
 
-      const status = error ? 'error' : 'saved';
+      const status = rpcFailed ? 'error' : 'saved';
       setSaveStatus((prev) => ({ ...prev, [key]: status }));
+      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [key]: 'idle' })), 2000);
 
-      // Volver a 'idle' después de 2s
-      setTimeout(() => {
-        setSaveStatus((prev) => ({ ...prev, [key]: 'idle' }));
-      }, 2000);
-
-      if (error) {
+      if (rpcFailed) {
         // Revertir si falló
         setOverrides((prev) =>
           prev.map((p) =>

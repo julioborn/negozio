@@ -31,15 +31,27 @@ export function useConfigUsers(establishmentId: string | null | undefined) {
         .from('profiles')
         .update({ is_active })
         .eq('id', userId);
-      if (!error) {
-        setUsers((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, is_active } : u))
-        );
-      }
+      if (!error) setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_active } : u)));
       return !error;
     },
     [supabase]
   );
 
-  return { users, isLoading, setActive, refetch: fetchUsers };
+  // Activa/desactiva el modo viaje usando RPC con SECURITY DEFINER
+  const setTravelMode = useCallback(
+    async (userId: string, travel_mode: boolean) => {
+      const { data: ok, error } = await supabase.rpc('set_travel_mode', {
+        p_user_id:     userId,
+        p_travel_mode: travel_mode,
+      });
+      if (!error && ok) {
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, travel_mode } : u)));
+        return true;
+      }
+      return false;
+    },
+    [supabase]
+  );
+
+  return { users, isLoading, setActive, setTravelMode, refetch: fetchUsers };
 }

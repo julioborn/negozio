@@ -62,35 +62,52 @@ export async function updateSession(request: NextRequest) {
     return response;
   }
 
-  // ── Usuario autenticado: obtener rol ──────────────────────
-  let role = request.cookies.get('user-role')?.value as UserRole | undefined;
+  // ── Usuario autenticado: obtener rol y travel_mode ──────
+  let role        = request.cookies.get('user-role')?.value as UserRole | undefined;
+  let travelMode  = request.cookies.get('user-travel-mode')?.value === 'true';
 
-  // Si no hay cookie (sesión ya activa sin cookie, p.ej. otro dispositivo), consultamos la DB
   if (!role) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, travel_mode')
       .eq('id', user.id)
       .single();
 
-    role = profile?.role as UserRole | undefined;
+    role       = profile?.role as UserRole | undefined;
+    travelMode = profile?.travel_mode ?? false;
 
     if (role) {
-      response.cookies.set('user-role', role, {
+      const cookieOpts = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: 'lax' as const,
         maxAge: 60 * 60 * 24 * 7,
         path: '/',
-      });
+      };
+      response.cookies.set('user-role', role, cookieOpts);
+      response.cookies.set('user-travel-mode', String(travelMode), cookieOpts);
     }
   }
 
   // ── Redirigir /login si ya está logueado ─────────────────
   if (isLoginRoute) {
+    const home = travelMode && role === 'employee'
+      ? '/empleados/reparto'
+      : role ? ROLE_HOME[role] : '/dashboard';
     const url = request.nextUrl.clone();
-    url.pathname = role ? ROLE_HOME[role] : '/dashboard';
+    url.pathname = home;
     return NextResponse.redirect(url);
+  }
+
+  // ── Modo viaje: solo puede acceder a /empleados/reparto ──
+  if (travelMode && role === 'employee') {
+    const allowed = pathname === '/empleados/reparto' || pathname.startsWith('/empleados/reparto/');
+    if (!allowed) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/empleados/reparto';
+      return NextResponse.redirect(url);
+    }
+    return response;
   }
 
   // ── Verificar autorización de rol ────────────────────────
