@@ -30,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard',                    label: 'Inicio',        icon: BarChart3,   exact: true },
   { href: '/dashboard/productos',          label: 'Productos',     icon: BoxesIcon },
   { href: '/caja',                         label: 'Caja',          icon: ShoppingCart },
-  { href: '/empleados/ingreso-mercaderia', label: 'Ingreso stock', icon: PackagePlus },
+  { href: '/empleados/ingreso-mercaderia', label: 'Stock', icon: PackagePlus },
   { href: '/empleados/venta-externa',      label: 'Venta externa', icon: Smartphone },
   { href: '/dashboard/configuracion',      label: 'Configuración', icon: Settings },
 ];

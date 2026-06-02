@@ -37,7 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/dashboard',                    label: 'Inicio',        icon: Home,        roles: ['owner'], exact: true },
       { href: '/dashboard/productos',          label: 'Productos',     icon: BoxesIcon,   roles: ['owner'] },
       { href: '/caja',                         label: 'Caja',          icon: ShoppingCart,roles: ['owner', 'cashier'] },
-      { href: '/empleados/ingreso-mercaderia', label: 'Ingreso stock', icon: PackagePlus, roles: ['owner', 'employee'] },
+      { href: '/empleados/ingreso-mercaderia', label: 'Stock', icon: PackagePlus, roles: ['owner', 'employee'] },
     ],
   },
   {
