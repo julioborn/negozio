@@ -78,11 +78,14 @@ export function ProductForm({
     if (!result) return;
 
     setExternalData(result);
-    // Pre-llenar el formulario con los datos encontrados
-    setValue('name',     result.name,           { shouldDirty: true });
-    if (result.brand)    setValue('brand',       result.brand,          { shouldDirty: true });
-    if (result.imageUrl) setValue('image_url',   result.imageUrl,       { shouldDirty: true });
-    setImagePreview(result.imageUrl);
+    // Pre-llenar el formulario con todos los datos encontrados
+    setValue('name',      result.name,           { shouldDirty: true });
+    if (result.brand)     setValue('brand',       result.brand,          { shouldDirty: true });
+    if (result.unitType)  setValue('unit_type',   result.unitType,        { shouldDirty: true });
+    if (result.imageUrl) {
+      setValue('image_url', result.imageUrl,     { shouldDirty: true });
+      setImagePreview(result.imageUrl);
+    }
   }
 
   async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -146,7 +149,13 @@ export function ProductForm({
               Datos encontrados en Open Food Facts
             </p>
             <p className="text-green-600">
-              Se prellenó nombre, marca e imagen. Revisá y completá el precio.
+              Se prellenó: nombre, marca
+              {externalData.unitType && ', unidad de medida'}
+              {externalData.imageUrl && ', imagen'}
+              {externalData.quantity && (
+                <span className="ml-1 font-medium">· {externalData.quantity}</span>
+              )}
+              . Revisá y completá el precio.
             </p>
           </div>
           <a
