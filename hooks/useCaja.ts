@@ -33,20 +33,25 @@ export function useCaja(establishmentId: string | null | undefined) {
       if (!establishmentId) return 'no_establishment';
 
       setScanSearching(true);
-      const { data } = await supabase
-        .from('establishment_products_detail')
-        .select('*')
-        .eq('establishment_id', establishmentId)
-        .eq('barcode', barcode)
-        .maybeSingle();
+      try {
+        const { data } = await supabase
+          .from('establishment_products_detail')
+          .select('*')
+          .eq('establishment_id', establishmentId)
+          .eq('barcode', barcode)
+          .maybeSingle();
 
-      setScanSearching(false);
+        setScanSearching(false);
 
-      if (data) {
-        store.addProduct(data as EstablishmentProductDetail);
-        return 'found';
+        if (data) {
+          store.addProduct(data as EstablishmentProductDetail);
+          return 'found';
+        }
+        return 'not_found';
+      } catch {
+        setScanSearching(false);
+        return 'not_found';
       }
-      return 'not_found';
     },
     [supabase, establishmentId, store]
   );

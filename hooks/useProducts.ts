@@ -90,13 +90,17 @@ export function useProducts(establishmentId: string | null | undefined) {
   const searchByBarcode = useCallback(
     async (barcode: string): Promise<EstablishmentProductDetail | null> => {
       if (!establishmentId) return null;
-      const { data } = await supabase
-        .from('establishment_products_detail')
-        .select('*')
-        .eq('establishment_id', establishmentId)
-        .eq('barcode', barcode)
-        .maybeSingle();
-      return (data as EstablishmentProductDetail) ?? null;
+      try {
+        const { data } = await supabase
+          .from('establishment_products_detail')
+          .select('*')
+          .eq('establishment_id', establishmentId)
+          .eq('barcode', barcode)
+          .maybeSingle();
+        return (data as EstablishmentProductDetail) ?? null;
+      } catch {
+        return null;
+      }
     },
     [supabase, establishmentId]
   );

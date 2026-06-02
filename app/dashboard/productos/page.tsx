@@ -39,7 +39,7 @@ export default function ProductosPage() {
   const canEditPrice = can('products.edit');
 
   const handleBarcodeDetect = useCallback(
-    async (barcode: string) => {
+    (barcode: string) => {
       if (barcode.length > 20 || barcode.includes(' ')) {
         setSearch(barcode);
         return;
@@ -50,21 +50,33 @@ export default function ProductosPage() {
       setNotFoundBarcode(null);
       setExternalLookup(null);
 
-      const result = await searchByBarcode(barcode);
-      setScanSearching(false);
+      // Envolvemos todo en un bloque async aislado con su propio try/catch
+      // para que ningún error llegue al error boundary global
+      void (async () => {
+        try {
+          const result = await searchByBarcode(barcode);
+          setScanSearching(false);
 
-      if (result) {
-        setFoundProduct(result);
-        setSearch(barcode);
-      } else {
-        setNotFoundBarcode(barcode);
-        // Mientras se muestra el banner, consultar Open Food Facts en paralelo
-        setLookingUpExternal(true);
-        lookupBarcode(barcode).then((ext) => {
-          setExternalLookup(ext);
-          setLookingUpExternal(false);
-        });
-      }
+          if (result) {
+            setFoundProduct(result);
+            setSearch(barcode);
+          } else {
+            setNotFoundBarcode(barcode);
+            setLookingUpExternal(true);
+            try {
+              const ext = await lookupBarcode(barcode);
+              setExternalLookup(ext);
+            } catch {
+              setExternalLookup(null);
+            } finally {
+              setLookingUpExternal(false);
+            }
+          }
+        } catch {
+          setScanSearching(false);
+          setNotFoundBarcode(barcode);
+        }
+      })();
     },
     [searchByBarcode, setSearch]
   );
