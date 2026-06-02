@@ -48,16 +48,17 @@ export function ProductForm({
   const {
     register,
     handleSubmit,
+    reset,
     setValue,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<NewProductFormData>({
     resolver: zodResolver(newProductSchema),
     defaultValues: {
-      barcode: initialBarcode,
-      unit_type: 'unit',
-      initial_stock: 0,
-      stock_min_alert: 5,
+      barcode:          initialBarcode,
+      unit_type:        'unit',
+      initial_stock:    0,
+      stock_min_alert:  5,
     },
   });
 
@@ -78,14 +79,28 @@ export function ProductForm({
     if (!result) return;
 
     setExternalData(result);
-    // Pre-llenar el formulario con todos los datos encontrados
-    setValue('name',      result.name,           { shouldDirty: true });
-    if (result.brand)     setValue('brand',       result.brand,          { shouldDirty: true });
-    if (result.unitType)  setValue('unit_type',   result.unitType,        { shouldDirty: true });
-    if (result.imageUrl) {
-      setValue('image_url', result.imageUrl,     { shouldDirty: true });
-      setImagePreview(result.imageUrl);
-    }
+
+    // Incluir la cantidad en el nombre si no está ya ("Mayonesa Hellmanns 475 g")
+    const nameWithQty =
+      result.quantity && !result.name.toLowerCase().includes(result.quantity.toLowerCase().split(' ')[0] ?? '')
+        ? `${result.name} ${result.quantity}`
+        : result.name;
+
+    // reset() garantiza que TODOS los inputs (controlados y no controlados) reciban los valores
+    reset(
+      {
+        barcode:         barcode,
+        name:            nameWithQty,
+        brand:           result.brand ?? '',
+        unit_type:       result.unitType ?? 'unit',
+        image_url:       result.imageUrl ?? null,
+        initial_stock:   0,
+        stock_min_alert: 5,
+      },
+      { keepDefaultValues: false }
+    );
+
+    if (result.imageUrl) setImagePreview(result.imageUrl);
   }
 
   async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
