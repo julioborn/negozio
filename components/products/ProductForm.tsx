@@ -92,6 +92,7 @@ export function ProductForm({
         barcode:         barcode,
         name:            nameWithQty,
         brand:           result.brand ?? '',
+        net_content:     result.quantity ?? '',   // ej: "475 g", "1 L"
         unit_type:       result.unitType ?? 'unit',
         image_url:       result.imageUrl ?? null,
         initial_stock:   0,
@@ -229,6 +230,18 @@ export function ProductForm({
             {...register('brand')}
             placeholder="La Serenísima"
             className={inputClass(!!errors.brand)}
+          />
+        </Field>
+
+        <Field
+          label="Contenido neto"
+          hint="Se completa automáticamente al escanear (ej: 475 g, 1 L)"
+          error={errors.net_content?.message}
+        >
+          <input
+            {...register('net_content')}
+            placeholder="475 g"
+            className={inputClass(!!errors.net_content)}
           />
         </Field>
 

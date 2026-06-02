@@ -72,6 +72,7 @@ export interface Product {
   brand: string | null;
   category_id: string | null;
   unit_type: UnitType;
+  net_content: string | null;   // ej: "475 g", "1 L", "330 ml"
   image_url: string | null;
   is_active: boolean;
   created_by: string | null;
@@ -114,6 +115,7 @@ export interface EstablishmentProductDetail {
   name: string;
   brand: string | null;
   unit_type: UnitType;
+  net_content: string | null;
   image_url: string | null;
   // campos de product_categories
   category_id: string | null;

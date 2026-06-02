@@ -18,6 +18,8 @@ export const newProductSchema = z.object({
 
   brand: z.string().max(100, 'Máximo 100 caracteres').optional(),
 
+  net_content: z.string().max(50).optional(),   // ej: "475 g", "1 L"
+
   category_id: z.string().uuid('Categoría inválida').nullable().optional(),
 
   unit_type: z.enum(['unit', 'kg', 'liter', 'pack', 'gram']),

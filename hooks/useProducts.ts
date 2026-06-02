@@ -117,13 +117,14 @@ export function useProducts(establishmentId: string | null | undefined) {
         .from('products')
         .upsert(
           {
-            barcode: formData.barcode,
-            name: formData.name,
-            brand: formData.brand || null,
+            barcode:     formData.barcode,
+            name:        formData.name,
+            brand:       formData.brand || null,
             category_id: formData.category_id ?? null,
-            unit_type: formData.unit_type,
-            image_url: formData.image_url ?? null,
-            created_by: userId,
+            unit_type:   formData.unit_type,
+            net_content: formData.net_content || null,
+            image_url:   formData.image_url ?? null,
+            created_by:  userId,
           },
           { onConflict: 'barcode', ignoreDuplicates: false }
         )
