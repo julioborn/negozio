@@ -1,35 +1,33 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
-import { useRouter } from 'next/navigation';
+import { Suspense } from 'react';
 
-import { ArrowLeft } from 'lucide-react';
+import { useSearchParams, useRouter } from 'next/navigation';
+
+import { ArrowLeft, Loader2 } from 'lucide-react';
 
 import { ProductForm } from '@/components/products/ProductForm';
 import { useAuth } from '@/hooks/useAuth';
 import { useProducts } from '@/hooks/useProducts';
 
-export default function NuevoProductoPage() {
+// Componente inner que usa useSearchParams — debe estar dentro de <Suspense>
+function NuevoProductoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialBarcode = searchParams.get('barcode') ?? '';
 
   const { user } = useAuth();
   const establishmentId = user?.establishment_id ?? null;
-
   const { createProduct } = useProducts(establishmentId);
 
   if (!establishmentId) {
     return (
-      <p className="text-sm text-slate-500">
-        No hay establecimiento configurado.
-      </p>
+      <p className="text-sm text-slate-500">No hay establecimiento configurado.</p>
     );
   }
 
   return (
     <div className="mx-auto max-w-2xl">
-      {/* Breadcrumb */}
       <button
         onClick={() => router.back()}
         className="mb-6 flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700"
@@ -59,5 +57,19 @@ export default function NuevoProductoPage() {
         />
       </div>
     </div>
+  );
+}
+
+export default function NuevoProductoPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+        </div>
+      }
+    >
+      <NuevoProductoContent />
+    </Suspense>
   );
 }
