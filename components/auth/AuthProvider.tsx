@@ -8,10 +8,10 @@ import {
   resolvePermissions,
 } from '@/lib/supabase/permissions';
 import { useAuthStore } from '@/store/auth.store';
-import type { Profile, UserRole } from '@/types/database';
+import type { Establishment, Profile, UserRole } from '@/types/database';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { setUser, setPermissions, setLoading } = useAuthStore();
+  const { setUser, setEstablishment, setPermissions, setLoading } = useAuthStore();
 
   useEffect(() => {
     const supabase = createClient();
@@ -30,6 +30,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setUser(profile as Profile);
+
+      // Cargar el establecimiento vinculado al perfil
+      if ((profile as Profile).establishment_id) {
+        const { data: est } = await supabase
+          .from('establishments')
+          .select('*')
+          .eq('id', (profile as Profile).establishment_id!)
+          .single();
+        if (est) setEstablishment(est as Establishment);
+      }
 
       const dbPermissions = await fetchRolePermissions(supabase, profile.role as UserRole);
       const resolved = resolvePermissions(profile.role as UserRole, dbPermissions);
@@ -55,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loadProfile(session.user.id);
       } else {
         setUser(null);
+        setEstablishment(null);
         setPermissions([], []);
         setLoading(false);
       }
