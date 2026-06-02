@@ -2,7 +2,9 @@ export type UserRole = 'owner' | 'cashier' | 'employee';
 export type SaleStatus = 'pending' | 'completed' | 'cancelled' | 'refunded';
 export type SaleChannel = 'local' | 'mercadolibre' | 'instagram' | 'whatsapp' | 'other';
 export type StockMovementType = 'in' | 'out' | 'adjustment';
-export type StockMovementReason = 'supplier' | 'sale' | 'return' | 'loss' | 'manual' | 'correction';
+export type StockMovementReason = 'supplier' | 'sale' | 'return' | 'loss' | 'manual' | 'correction' | 'external_sale' | 'travel_stock' | 'travel_return';
+export type DeliveryPaymentStatus = 'paid' | 'pending';
+export type TravelStockStatus = 'active' | 'completed' | 'cancelled';
 export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'mercadopago' | 'other';
 export type UnitType = 'unit' | 'kg' | 'liter' | 'pack' | 'gram';
 
@@ -219,6 +221,73 @@ export interface ConfirmedExternalSaleSummary {
     previous_stock: number;
     new_stock: number;
   }>;
+}
+
+// ─── Distribución ────────────────────────────────────────────
+export interface Customer {
+  id: string;
+  establishment_id: string;
+  name: string;
+  phone: string | null;
+  locality: string | null;
+  notes: string | null;
+  total_debt: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TravelStock {
+  id: string;
+  establishment_id: string;
+  name: string;
+  assigned_to: string | null;
+  status: TravelStockStatus;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  // relations
+  items?: TravelStockItem[];
+  assigned_profile?: Profile;
+}
+
+export interface TravelStockItem {
+  id: string;
+  travel_stock_id: string;
+  establishment_product_id: string;
+  product_name: string;
+  quantity_assigned: number;
+  quantity_sold: number;
+  unit_price: number;
+  created_at: string;
+}
+
+export interface Delivery {
+  id: string;
+  establishment_id: string;
+  travel_stock_id: string | null;
+  customer_id: string;
+  sold_by: string;
+  payment_status: DeliveryPaymentStatus;
+  total_amount: number;
+  paid_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  // relations
+  customer?: Customer;
+  items?: DeliveryItem[];
+}
+
+export interface DeliveryItem {
+  id: string;
+  delivery_id: string;
+  establishment_product_id: string | null;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
 }
 
 // ─── Ventas ──────────────────────────────────────────────────

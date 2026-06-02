@@ -8,12 +8,16 @@ import { usePathname } from 'next/navigation';
 import {
   BarChart3,
   BoxesIcon,
+  DollarSign,
   LogOut,
   Menu,
   PackagePlus,
+  Receipt,
   Settings,
   ShoppingCart,
   Smartphone,
+  Truck,
+  Users,
   X,
 } from 'lucide-react';
 
@@ -47,6 +51,11 @@ const ALL_LINKS: NavLink[] = [
   { href: '/caja',                         label: 'Caja',          icon: ShoppingCart, roles: ['owner', 'cashier'] },
   { href: '/empleados/ingreso-mercaderia', label: 'Ingreso stock', icon: PackagePlus,  roles: ['owner', 'employee'] },
   { href: '/empleados/venta-externa',      label: 'Venta externa', icon: Smartphone,   roles: ['owner'] },
+  // Distribución
+  { href: '/dashboard/viajes',             label: 'Viajes',        icon: Truck,        roles: ['owner'] },
+  { href: '/empleados/reparto',            label: 'Reparto',       icon: DollarSign,   roles: ['owner', 'employee'] },
+  { href: '/dashboard/clientes',           label: 'Clientes',      icon: Users,        roles: ['owner'] },
+  { href: '/dashboard/cobros',             label: 'Cobros',        icon: Receipt,      roles: ['owner'] },
   { href: '/dashboard/configuracion',      label: 'Configuración', icon: Settings,     roles: ['owner'] },
 ];
 
