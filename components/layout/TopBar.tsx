@@ -82,7 +82,14 @@ export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
         'flex h-14 shrink-0 items-center justify-between border-b border-dash-border bg-white px-4',
         className
       )}>
+        {/* Hamburguesa a la IZQUIERDA + logo + establecimiento */}
         <div className="flex items-center gap-2.5 min-w-0">
+          {showHamburger && (
+            <button onClick={() => setMenuOpen(true)}
+              className="flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
+              <Menu className="h-5 w-5" />
+            </button>
+          )}
           <Image src="/logos/negozio-icon-principal.png" alt="Negozio"
             width={30} height={30} className="shrink-0 object-contain" />
           <div className="min-w-0">
@@ -112,12 +119,6 @@ export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
             <LogOut className="h-4 w-4" />
             <span className="hidden sm:inline">Salir</span>
           </button>
-          {showHamburger && (
-            <button onClick={() => setMenuOpen(true)}
-              className="flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
-              <Menu className="h-5 w-5" />
-            </button>
-          )}
         </div>
       </header>
 
