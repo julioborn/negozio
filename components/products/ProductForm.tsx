@@ -232,11 +232,19 @@ export function ProductForm({
         </Field>
 
         <Field label="Unidad de medida *" error={errors.unit_type?.message}>
-          <select {...register('unit_type')} className={inputClass(!!errors.unit_type)}>
+          {/* Controlled con watch para que setValue() lo actualice visualmente */}
+          <select
+            value={watch('unit_type') ?? 'unit'}
+            onChange={(e) =>
+              setValue('unit_type', e.target.value as typeof UNIT_OPTIONS[number]['value'], {
+                shouldDirty: true,
+                shouldValidate: true,
+              })
+            }
+            className={inputClass(!!errors.unit_type)}
+          >
             {UNIT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
         </Field>

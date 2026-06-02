@@ -25,21 +25,29 @@ export interface ExternalProductData {
 
 function parseUnitType(quantity: string | null | undefined): UnitType | null {
   if (!quantity) return null;
-  const q = quantity.toLowerCase().replace(/\s+/g, '');
+  // Trabajamos en minúsculas pero CONSERVAMOS espacios para \b
+  const q = quantity.toLowerCase().trim();
 
-  if (/\d+\s*x\s*/.test(q))       return 'pack';   // "6 x 150ml", "4 x 200g"
-  if (/kg|kilo/.test(q))          return 'kg';
-  if (/\d+(ml|cl|dl|l|lt|ltr|litro)/.test(q)) return 'liter';
-  if (/\d+\s*g(r|rs|ramos)?/.test(q)) {
-    // Si es más de 1000g lo reportamos como kg, si no como gram
-    const match = q.match(/(\d+(?:[.,]\d+)?)\s*g/);
-    if (match) {
-      const grams = parseFloat(match[1]!.replace(',', '.'));
-      return grams >= 1000 ? 'kg' : 'gram';
-    }
-    return 'gram';
+  // Pack / multi-unidad: "6 x 150 ml", "4x200g", "pack de 6"
+  if (/\d+\s*x\s*\d/.test(q) || /pack/.test(q)) return 'pack';
+
+  // Litros — chequeamos antes de 'g' para que 'ml' no quede sin match
+  if (/litr[eo]/.test(q)) return 'liter';
+  if (/[\d.,]+\s*(ml|cl|dl)\b/.test(q)) return 'liter';
+  if (/[\d.,]+\s*l\b/.test(q)) return 'liter';   // "1 l", "1.5 l"
+
+  // Kilogramos
+  if (/[\d.,]+\s*kg\b/.test(q) || /\bkilo/.test(q)) return 'kg';
+
+  // Gramos — el más común; si ≥ 1000 g lo mapeamos a kg
+  const gramMatch = q.match(/[\d.,]+(?=\s*gr?\b)/);
+  if (gramMatch) {
+    const grams = parseFloat(gramMatch[0].replace(',', '.'));
+    return grams >= 1000 ? 'kg' : 'gram';
   }
-  if (/unidad|unit|pcs|pieza|ud/.test(q)) return 'unit';
+
+  // Unidades explícitas
+  if (/\b(unit|unidad|ud\.?|pcs|pieza|each)\b/.test(q)) return 'unit';
 
   return null;
 }
