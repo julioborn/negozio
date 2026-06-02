@@ -11,7 +11,11 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 export const metadata: Metadata = {
   title: 'Negozio',
   description: 'Sistema de gestión de tienda',
-  icons: { icon: '/logos/negozio-icon-principal.png' },
+  icons: {
+    icon:     [{ url: '/negozio-icon.png', type: 'image/png' }],
+    apple:    [{ url: '/negozio-icon.png', type: 'image/png' }],
+    shortcut: [{ url: '/negozio-icon.png', type: 'image/png' }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
