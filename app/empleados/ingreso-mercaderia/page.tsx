@@ -41,7 +41,48 @@ export default function IngresoMercaderiaPage() {
   >(null);
   const [itemsSnapshot, setItemsSnapshot] = useState(items);
 
-  // ── Verificación de permiso ───────────────────────────────
+  // ── Callbacks (useCallback ANTES de los early returns — regla de hooks) ───
+  const handleScan = useCallback(
+    (barcode: string) => {
+      void (async () => {
+        try {
+          setScanSearching(true);
+          setNotFoundBarcode(null);
+          const found = await searchByBarcode(barcode);
+          setScanSearching(false);
+          if (found) {
+            addItem(found);
+          } else {
+            setNotFoundBarcode(barcode);
+            setNewProductModalOpen(true);
+          }
+        } catch {
+          setScanSearching(false);
+        }
+      })();
+    },
+    [searchByBarcode, addItem]
+  );
+
+  const handleProductCreated = useCallback(
+    (barcode: string) => {
+      void (async () => {
+        try {
+          setNewProductModalOpen(false);
+          setNotFoundBarcode(null);
+          setScanSearching(true);
+          const found = await searchByBarcode(barcode);
+          setScanSearching(false);
+          if (found) addItem(found);
+        } catch {
+          setScanSearching(false);
+        }
+      })();
+    },
+    [searchByBarcode, addItem]
+  );
+
+  // ── Early returns DESPUÉS de todos los hooks ──────────────
   if (authLoading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -69,38 +110,6 @@ export default function IngresoMercaderiaPage() {
       </div>
     );
   }
-
-  // ── Scan handler ──────────────────────────────────────────
-  const handleScan = useCallback(
-    async (barcode: string) => {
-      setScanSearching(true);
-      setNotFoundBarcode(null);
-
-      const found = await searchByBarcode(barcode);
-      setScanSearching(false);
-
-      if (found) {
-        addItem(found);
-      } else {
-        setNotFoundBarcode(barcode);
-        setNewProductModalOpen(true);
-      }
-    },
-    [searchByBarcode, addItem]
-  );
-
-  // Después de crear un producto nuevo, buscarlo y agregarlo automáticamente
-  const handleProductCreated = useCallback(
-    async (barcode: string) => {
-      setNewProductModalOpen(false);
-      setNotFoundBarcode(null);
-      setScanSearching(true);
-      const found = await searchByBarcode(barcode);
-      setScanSearching(false);
-      if (found) addItem(found);
-    },
-    [searchByBarcode, addItem]
-  );
 
   // ── Confirmar ingreso ─────────────────────────────────────
   async function handleConfirm() {
