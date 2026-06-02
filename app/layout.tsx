@@ -12,9 +12,9 @@ export const metadata: Metadata = {
   title: 'Negozio',
   description: 'Sistema de gestión de tienda',
   icons: {
-    icon:     [{ url: '/negozio-icon.png', type: 'image/png' }],
-    apple:    [{ url: '/negozio-icon.png', type: 'image/png' }],
-    shortcut: [{ url: '/negozio-icon.png', type: 'image/png' }],
+    icon:     '/logos/negozio-icon-principal.png',
+    apple:    '/logos/negozio-icon-principal.png',
+    shortcut: '/logos/negozio-icon-principal.png',
   },
 };
 
