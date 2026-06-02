@@ -2,22 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ── Base ────────────────────────────────────────────────────── */
+html {
+  /* Evita el flash azul en iOS al tocar elementos */
+  -webkit-tap-highlight-color: transparent;
+  /* Respeta el safe-area del notch en iPhone */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  /* Scroll suave en iOS */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Gestos nativos iOS ──────────────────────────────────────── */
+/* NO bloqueamos overscroll para que pull-to-refresh y swipe-back
+   funcionen en Safari y en modo PWA standalone */
+
+/* ── Inputs en iOS ───────────────────────────────────────────── */
+/* Evita el zoom automático al hacer foco en inputs */
+input, select, textarea {
+  font-size: 16px;
 }
 
 @layer utilities {

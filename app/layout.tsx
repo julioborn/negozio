@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 
 import { AuthProvider } from '@/components/auth/AuthProvider';
@@ -8,9 +8,23 @@ import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  minimumScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#1700a5',
+};
+
 export const metadata: Metadata = {
   title: 'Negozio',
   description: 'Sistema de gestión de tienda',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Negozio',
+  },
   icons: {
     icon:     '/logos/negozio-icon-principal.png',
     apple:    '/logos/negozio-icon-principal.png',
