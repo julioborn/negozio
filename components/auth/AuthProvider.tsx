@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 
+import { AppLoader } from '@/components/ui/AppLoader';
 import { createClient } from '@/lib/supabase/client';
 import {
   fetchRolePermissions,
@@ -74,5 +75,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, [setUser, setPermissions, setLoading]);
 
+  return <AuthLoadingGate>{children}</AuthLoadingGate>;
+}
+
+// Bloquea toda la UI hasta que la sesión está resuelta — evita flashes de "Sin acceso"
+function AuthLoadingGate({ children }: { children: React.ReactNode }) {
+  const isLoading = useAuthStore((s) => s.isLoading);
+  if (isLoading) return <AppLoader />;
   return <>{children}</>;
 }
