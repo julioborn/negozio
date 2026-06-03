@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 
-import { AuthProvider } from '@/components/auth/AuthProvider';
-import { Toaster }      from '@/components/ui/Toast';
+import { AuthProvider }   from '@/components/auth/AuthProvider';
+import { PullToRefresh }  from '@/components/ui/PullToRefresh';
+import { Toaster }        from '@/components/ui/Toast';
 
 import './globals.css';
 
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.variable} font-sans antialiased`}>
         <AuthProvider>{children}</AuthProvider>
         <Toaster />
+        <PullToRefresh />
       </body>
     </html>
   );
