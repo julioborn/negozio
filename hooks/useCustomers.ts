@@ -6,10 +6,11 @@ import { createClient } from '@/lib/supabase/client';
 import type { Customer } from '@/types/database';
 
 export interface CustomerFormData {
-  name:     string;
-  phone?:   string | null;
+  name:      string;
+  phone?:    string | null;
   locality?: string | null;
-  notes?:   string | null;
+  barrio?:   string | null;
+  notes?:    string | null;
 }
 
 export function useCustomers(establishmentId: string | null | undefined) {

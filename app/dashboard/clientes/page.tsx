@@ -17,6 +17,7 @@ const schema = z.object({
   name:     z.string().min(1, 'El nombre es requerido'),
   phone:    z.string().optional(),
   locality: z.string().optional(),
+  barrio:   z.string().optional(),
   notes:    z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
@@ -42,7 +43,7 @@ export default function ClientesPage() {
   }
 
   function openEdit(c: Customer) {
-    reset({ name: c.name, phone: c.phone ?? '', locality: c.locality ?? '', notes: c.notes ?? '' });
+    reset({ name: c.name, phone: c.phone ?? '', locality: c.locality ?? '', barrio: c.barrio ?? '', notes: c.notes ?? '' });
     setEditing(c);
     setError(null);
     setModalOpen(true);
@@ -52,10 +53,11 @@ export default function ClientesPage() {
     setError(null);
     try {
       const payload: CustomerFormData = {
-        name: data.name,
-        phone: data.phone || null,
+        name:     data.name,
+        phone:    data.phone    || null,
         locality: data.locality || null,
-        notes: data.notes || null,
+        barrio:   data.barrio   || null,
+        notes:    data.notes    || null,
       };
       if (editing) await updateCustomer(editing.id, payload);
       else await createCustomer(payload);
@@ -105,9 +107,10 @@ export default function ClientesPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-slate-900">{c.name}</p>
-                  {c.locality && (
+                  {(c.locality || c.barrio) && (
                     <p className="flex items-center gap-1 text-xs text-slate-500">
-                      <MapPin className="h-3 w-3" />{c.locality}
+                      <MapPin className="h-3 w-3" />
+                      {[c.locality, c.barrio].filter(Boolean).join(' — B° ')}
                     </p>
                   )}
                   {c.phone && (
@@ -149,6 +152,7 @@ export default function ClientesPage() {
           {([
             { name: 'name' as const,     label: 'Nombre *',    ph: 'Juan Pérez' },
             { name: 'locality' as const, label: 'Localidad',   ph: 'Villa Mercedes' },
+            { name: 'barrio' as const,   label: 'Barrio',      ph: 'B° Las Flores' },
             { name: 'phone' as const,    label: 'Teléfono',    ph: '2664 123456' },
             { name: 'notes' as const,    label: 'Notas',       ph: 'Observaciones...' },
           ]).map(({ name, label, ph }) => (

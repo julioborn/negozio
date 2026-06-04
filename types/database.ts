@@ -231,6 +231,7 @@ export interface Customer {
   name: string;
   phone: string | null;
   locality: string | null;
+  barrio: string | null;
   notes: string | null;
   total_debt: number;
   is_active: boolean;
