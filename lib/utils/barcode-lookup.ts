@@ -61,24 +61,37 @@ export async function lookupBarcode(barcode: string): Promise<ExternalProductDat
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
 
-    const res = await fetch(
-      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}` +
-        `?fields=product_name,product_name_es,brands,image_front_url,image_url,quantity`,
-      {
-        signal: controller.signal,
-        cache:  'no-store',
-        headers: { 'User-Agent': 'Negozio-POS/1.0 (contacto@negozio.app)' },
-      }
+    const FIELDS = 'product_name,product_name_es,product_name_en,generic_name,generic_name_es,brands,image_front_url,quantity';
+
+    // Intentar primero con world (cubre todos los países incluyendo Argentina)
+    let res = await fetch(
+      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}?fields=${FIELDS}`,
+      { signal: controller.signal, cache: 'no-store', headers: { 'User-Agent': 'Negozio-POS/1.0' } }
     );
+
+    // Fallback: endpoint v0 (estructura diferente, a veces tiene más datos)
+    if (!res.ok || res.status === 404) {
+      res = await fetch(
+        `https://world.openfoodfacts.org/cgi/get_product.pl?code=${encodeURIComponent(barcode)}&json=1&fields=${FIELDS}`,
+        { signal: controller.signal, cache: 'no-store', headers: { 'User-Agent': 'Negozio-POS/1.0' } }
+      );
+    }
 
     clearTimeout(timeout);
     if (!res.ok) return null;
 
     const data = await res.json();
-    if (data.status !== 1 || !data.product) return null;
+    if ((data.status !== 1 && data.status !== '1') || !data.product) return null;
 
     const p = data.product;
-    const name = (p.product_name_es || p.product_name || '').trim();
+    const name = (
+      p.product_name_es ||
+      p.product_name ||
+      p.product_name_en ||
+      p.generic_name_es ||
+      p.generic_name ||
+      ''
+    ).trim();
     if (!name) return null;
 
     const quantity = (p.quantity as string | null)?.trim() || null;

@@ -71,10 +71,12 @@ export default function RepartoPage() {
   const [scanning,         setScanning]         = useState(false);
   const [scanMode,         setScanMode]         = useState<ScanMode>('idle');
   const [scannedProduct,   setScannedProduct]   = useState<EstablishmentProductDetail | null>(null);
-  const [externalInfo,     setExternalInfo]     = useState<{ barcode: string; name: string; brand: string | null } | null>(null);
+  const [externalInfo,     setExternalInfo]     = useState<{ barcode: string; name: string; brand: string | null; quantity: string | null; unitType: string | null } | null>(null);
   const [scanQty,          setScanQty]          = useState(1);
   const [scanPrice,        setScanPrice]        = useState('');
+  const [scanLocalPrice,   setScanLocalPrice]   = useState('');
   const [scanManualName,   setScanManualName]   = useState('');
+  const [scanManualQty,    setScanManualQty]    = useState('');
   const [scanError,        setScanError]        = useState<string | null>(null);
   const [creating,         setCreating]         = useState(false);
   const [creatingProduct,  setCreatingProduct]  = useState(false);
@@ -153,6 +155,7 @@ export default function RepartoPage() {
       setScannedProduct(local as EstablishmentProductDetail);
       setScanMode('local');
       setScanQty(1);
+      setScanLocalPrice(String(local.price));
       setScanning(false);
       return;
     }
@@ -162,16 +165,17 @@ export default function RepartoPage() {
     setScanning(false);
 
     if (external) {
-      setExternalInfo({ barcode: code.trim(), name: external.name, brand: external.brand });
+      setExternalInfo({ barcode: code.trim(), name: external.name, brand: external.brand, quantity: external.quantity, unitType: external.unitType });
       setScanMode('external');
     } else {
       // 3. No encontrado en ningún lado → entrada manual
-      setExternalInfo({ barcode: code.trim(), name: '', brand: null });
+      setExternalInfo({ barcode: code.trim(), name: '', brand: null, quantity: null, unitType: null });
       setScanMode('manual');
     }
     setScanQty(1);
     setScanPrice('');
     setScanManualName('');
+    setScanManualQty('');
   }
 
   function cancelScanDialog() {
@@ -180,17 +184,31 @@ export default function RepartoPage() {
     setExternalInfo(null);
     setScanQty(1);
     setScanPrice('');
+    setScanLocalPrice('');
     setScanManualName('');
+    setScanManualQty('');
     setTimeout(() => barcodeRef.current?.focus(), 100);
   }
 
   // Confirmar producto que ya estaba en la base local
-  function confirmLocalItem() {
+  async function confirmLocalItem() {
     if (!scannedProduct || scanQty < 1) return;
+    const newPrice = parseFloat(scanLocalPrice.replace(',', '.'));
+    const effectivePrice = (!isNaN(newPrice) && newPrice > 0) ? newPrice : scannedProduct.price;
+
+    // Guardar el último precio en DB si cambió
+    if (!isNaN(newPrice) && newPrice > 0 && newPrice !== scannedProduct.price) {
+      await supabase
+        .from('establishment_products')
+        .update({ price: newPrice })
+        .eq('id', scannedProduct.id);
+    }
+
+    const productWithPrice = { ...scannedProduct, price: effectivePrice };
     setScanCart(prev => {
       const ex = prev.find(i => i.product.id === scannedProduct.id);
       if (ex) return prev.map(i => i.product.id === scannedProduct.id ? { ...i, quantity: i.quantity + scanQty } : i);
-      return [...prev, { product: scannedProduct, quantity: scanQty }];
+      return [...prev, { product: productWithPrice, quantity: scanQty }];
     });
     cancelScanDialog();
   }
@@ -201,14 +219,23 @@ export default function RepartoPage() {
     const name  = scanMode === 'manual' ? scanManualName.trim() : (externalInfo?.name ?? '');
     if (!externalInfo?.barcode || !name || isNaN(price) || price <= 0 || scanQty < 1) return;
 
+    const netContent = scanMode === 'manual' ? (scanManualQty.trim() || null) : (externalInfo?.quantity ?? null);
+
     setCreatingProduct(true);
     setScanError(null);
     try {
-      // Upsert en catálogo global
+      // Upsert en catálogo global — guarda net_content y unit_type de OPF
       const { data: prod, error: pErr } = await supabase
         .from('products')
         .upsert(
-          { barcode: externalInfo.barcode, name, brand: externalInfo.brand || null, unit_type: 'unit', created_by: user!.id },
+          {
+            barcode:     externalInfo.barcode,
+            name,
+            brand:       externalInfo.brand || null,
+            unit_type:   (externalInfo?.unitType as string) || 'unit',
+            net_content: netContent,
+            created_by:  user!.id,
+          },
           { onConflict: 'barcode', ignoreDuplicates: false }
         )
         .select('id')
@@ -521,7 +548,20 @@ export default function RepartoPage() {
             <p className="text-xs font-semibold uppercase tracking-wide text-primary-500 mb-1">Producto encontrado</p>
             <p className="font-bold text-primary-900">{scannedProduct.name}</p>
             {scannedProduct.brand && <p className="text-xs text-primary-500">{scannedProduct.brand}</p>}
-            <p className="mb-3 text-sm text-primary-600">{formatCurrency(scannedProduct.price)} c/u</p>
+            {scannedProduct.net_content && (
+              <p className="text-xs text-primary-400">{scannedProduct.net_content}</p>
+            )}
+            <div className="mt-2 mb-3">
+              <label className="text-xs font-medium text-primary-600">Precio de venta ($)</label>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={scanLocalPrice}
+                onChange={e => setScanLocalPrice(e.target.value)}
+                className="block w-full rounded-xl border border-primary-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
+              />
+            </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
@@ -536,8 +576,10 @@ export default function RepartoPage() {
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
-              <button onClick={confirmLocalItem}
-                className="flex-1 rounded-xl bg-primary-700 py-2.5 text-sm font-bold text-white">
+              <button
+                onClick={confirmLocalItem}
+                disabled={!scanLocalPrice || parseFloat(scanLocalPrice) <= 0}
+                className="flex-1 rounded-xl bg-primary-700 py-2.5 text-sm font-bold text-white disabled:opacity-50">
                 Agregar ({scanQty})
               </button>
               <button onClick={cancelScanDialog}
@@ -551,7 +593,7 @@ export default function RepartoPage() {
         {/* ── Modo EXTERNAL: encontrado en Open Food Facts ── */}
         {scanMode === 'external' && externalInfo && (
           <div className="mb-4 rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-500 mb-1">Producto encontrado en Open Food Facts</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-500 mb-1">Encontrado en Open Food Facts</p>
             <div className="mb-3 space-y-2">
               <div>
                 <label className="text-xs text-blue-600">Nombre</label>
@@ -561,6 +603,9 @@ export default function RepartoPage() {
                   className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
                 />
               </div>
+              {externalInfo.quantity && (
+                <p className="text-xs text-blue-500 font-medium">Contenido: {externalInfo.quantity}</p>
+              )}
               <div>
                 <label className="text-xs text-blue-600">Precio de venta ($)</label>
                 <input
@@ -606,7 +651,7 @@ export default function RepartoPage() {
         {/* ── Modo MANUAL: no encontrado en ningún lado ── */}
         {scanMode === 'manual' && (
           <div className="mb-4 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 mb-1">Producto no encontrado — ingresar manualmente</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 mb-1">No encontrado — ingresar manualmente</p>
             <div className="mb-3 space-y-2">
               <div>
                 <label className="text-xs text-amber-700">Nombre del producto</label>
@@ -614,8 +659,17 @@ export default function RepartoPage() {
                   autoFocus
                   value={scanManualName}
                   onChange={e => setScanManualName(e.target.value)}
-                  placeholder="Ej: Gaseosa Cola 2L"
+                  placeholder="Ej: Gaseosa Cola"
                   className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-amber-700">Contenido del envase (opcional)</label>
+                <input
+                  value={scanManualQty}
+                  onChange={e => setScanManualQty(e.target.value)}
+                  placeholder="Ej: 2 L, 500 g, 6 x 330 ml"
+                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm focus:border-primary-700 focus:outline-none"
                 />
               </div>
               <div>
@@ -674,7 +728,10 @@ export default function RepartoPage() {
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-slate-900">{item.product.name}</p>
-                    <p className="text-xs text-slate-400">{formatCurrency(item.product.price)} c/u</p>
+                    <p className="text-xs text-slate-400">
+                      {formatCurrency(item.product.price)} c/u
+                      {item.product.net_content ? ` · ${item.product.net_content}` : ''}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
