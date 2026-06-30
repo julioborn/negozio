@@ -51,6 +51,31 @@ function payLabel(m: DeliveryPaymentMethod | null): string {
   return 'Pendiente';
 }
 
+// ─── NumPad — entrada de precio sin teclado del sistema ───────
+function NumPad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const keys = ['7','8','9','4','5','6','1','2','3','.','0','⌫'] as const;
+  return (
+    <div className="mt-1 grid grid-cols-3 gap-1.5">
+      {keys.map(k => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => {
+            if (k === '⌫') { onChange(value.slice(0, -1)); return; }
+            if (k === '.' && value.includes('.')) return;
+            if (k !== '.' && value === '0') { onChange(k); return; }
+            onChange(value + k);
+          }}
+          className="flex h-11 items-center justify-center rounded-xl bg-slate-100
+                     text-lg font-bold text-slate-700 active:bg-slate-300 select-none"
+        >
+          {k}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────
 export default function RepartoPage() {
   const { user }         = useAuth();
@@ -527,7 +552,6 @@ export default function RepartoPage() {
             <input
               ref={barcodeRef}
               autoFocus
-              inputMode="none"
               disabled={scanMode !== 'idle' || scanning}
               value={barcodeInput}
               onChange={e => setBarcodeInput(e.target.value)}
@@ -573,26 +597,19 @@ export default function RepartoPage() {
               </div>
               <div>
                 <label className="text-xs font-medium text-primary-600">Precio de venta ($)</label>
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={scanLocalPrice}
-                  onChange={e => setScanLocalPrice(e.target.value)}
-                  className="block w-full rounded-xl border border-primary-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
-                />
+                <div className="flex items-center rounded-xl border border-primary-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
+                  {scanLocalPrice || <span className="text-slate-400">0</span>}
+                </div>
+                <NumPad value={scanLocalPrice} onChange={setScanLocalPrice} />
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="mt-3 flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
                   className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
                   <Minus className="h-4 w-4" />
                 </button>
-                <input type="number" min={1} value={scanQty}
-                  onChange={e => setScanQty(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-16 rounded-xl border border-slate-200 py-2 text-center text-lg font-black focus:border-primary-700 focus:outline-none" />
+                <span className="w-10 text-center text-lg font-black">{scanQty}</span>
                 <button onClick={() => setScanQty(q => q + 1)}
                   className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
                   <Plus className="h-4 w-4" />
@@ -637,27 +654,19 @@ export default function RepartoPage() {
               </div>
               <div>
                 <label className="text-xs text-blue-600">Precio de venta ($)</label>
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  placeholder="0.00"
-                  value={scanPrice}
-                  onChange={e => setScanPrice(e.target.value)}
-                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
-                />
+                <div className="flex items-center rounded-xl border border-blue-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
+                  {scanPrice || <span className="text-slate-400">0</span>}
+                </div>
+                <NumPad value={scanPrice} onChange={setScanPrice} />
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="mt-3 flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
                   className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
                   <Minus className="h-4 w-4" />
                 </button>
-                <input type="number" min={1} value={scanQty}
-                  onChange={e => setScanQty(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-16 rounded-xl border border-slate-200 py-2 text-center text-lg font-black focus:border-primary-700 focus:outline-none" />
+                <span className="w-10 text-center text-lg font-black">{scanQty}</span>
                 <button onClick={() => setScanQty(q => q + 1)}
                   className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
                   <Plus className="h-4 w-4" />
@@ -705,27 +714,19 @@ export default function RepartoPage() {
               </div>
               <div>
                 <label className="text-xs text-amber-700">Precio de venta ($)</label>
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  placeholder="0.00"
-                  value={scanPrice}
-                  onChange={e => setScanPrice(e.target.value)}
-                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
-                />
+                <div className="flex items-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
+                  {scanPrice || <span className="text-slate-400">0</span>}
+                </div>
+                <NumPad value={scanPrice} onChange={setScanPrice} />
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="mt-3 flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
                   className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
                   <Minus className="h-4 w-4" />
                 </button>
-                <input type="number" min={1} value={scanQty}
-                  onChange={e => setScanQty(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-16 rounded-xl border border-slate-200 py-2 text-center text-lg font-black focus:border-primary-700 focus:outline-none" />
+                <span className="w-10 text-center text-lg font-black">{scanQty}</span>
                 <button onClick={() => setScanQty(q => q + 1)}
                   className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
                   <Plus className="h-4 w-4" />
