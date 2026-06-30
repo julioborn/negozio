@@ -45,21 +45,22 @@ export async function createUserAction(data: {
     email: data.email,
     password: data.password,
     email_confirm: true,
+    user_metadata: { full_name: data.full_name },
   });
 
   if (authError || !authData.user) {
     return { success: false, error: translateError(authError?.message ?? '') };
   }
 
-  // 3. Insertar perfil
-  const { error: profileError } = await admin.from('profiles').insert({
+  // 3. Upsert perfil (el trigger on_auth_user_created puede haberlo creado ya)
+  const { error: profileError } = await admin.from('profiles').upsert({
     id: authData.user.id,
     email: data.email,
     full_name: data.full_name,
     role: data.role as UserRole,
     establishment_id: data.establishment_id,
     is_active: true,
-  });
+  }, { onConflict: 'id' });
 
   if (profileError) {
     await admin.auth.admin.deleteUser(authData.user.id);
