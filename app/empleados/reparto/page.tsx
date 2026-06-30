@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useCustomers } from '@/hooks/useCustomers';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
+import { lookupBarcode } from '@/lib/utils/barcode-lookup';
 import type {
   Customer, Delivery, DeliveryPaymentMethod,
   EstablishmentProductDetail, TravelStockItem,
@@ -64,13 +65,19 @@ export default function RepartoPage() {
   const [tsItems,      setTsItems]      = useState<TravelStockItem[]>([]);
 
   // ── Scanning ────────────────────────────────────────────────
-  const [scanCart,        setScanCart]        = useState<ScanItem[]>([]);
-  const [barcodeInput,    setBarcodeInput]    = useState('');
-  const [scanning,        setScanning]        = useState(false);
-  const [scannedProduct,  setScannedProduct]  = useState<EstablishmentProductDetail | null>(null);
-  const [scanQty,         setScanQty]         = useState(1);
-  const [scanError,       setScanError]       = useState<string | null>(null);
-  const [creating,        setCreating]        = useState(false);
+  type ScanMode = 'idle' | 'local' | 'external' | 'manual';
+  const [scanCart,         setScanCart]         = useState<ScanItem[]>([]);
+  const [barcodeInput,     setBarcodeInput]     = useState('');
+  const [scanning,         setScanning]         = useState(false);
+  const [scanMode,         setScanMode]         = useState<ScanMode>('idle');
+  const [scannedProduct,   setScannedProduct]   = useState<EstablishmentProductDetail | null>(null);
+  const [externalInfo,     setExternalInfo]     = useState<{ barcode: string; name: string; brand: string | null } | null>(null);
+  const [scanQty,          setScanQty]          = useState(1);
+  const [scanPrice,        setScanPrice]        = useState('');
+  const [scanManualName,   setScanManualName]   = useState('');
+  const [scanError,        setScanError]        = useState<string | null>(null);
+  const [creating,         setCreating]         = useState(false);
+  const [creatingProduct,  setCreatingProduct]  = useState(false);
   const barcodeRef = useRef<HTMLInputElement>(null);
 
   // ── Nueva venta ─────────────────────────────────────────────
@@ -133,32 +140,112 @@ export default function RepartoPage() {
     setScanError(null);
     setScanning(true);
     setBarcodeInput('');
-    const { data } = await supabase
+
+    // 1. Buscar en la base local
+    const { data: local } = await supabase
       .from('establishment_products_detail')
       .select('*')
       .eq('establishment_id', establishmentId)
       .eq('barcode', code.trim())
       .maybeSingle();
-    setScanning(false);
-    if (!data) {
-      setScanError(`Producto no encontrado: ${code.trim()}`);
-      setTimeout(() => barcodeRef.current?.focus(), 50);
+
+    if (local) {
+      setScannedProduct(local as EstablishmentProductDetail);
+      setScanMode('local');
+      setScanQty(1);
+      setScanning(false);
       return;
     }
-    setScannedProduct(data as EstablishmentProductDetail);
+
+    // 2. No está local → buscar en Open Food Facts
+    const external = await lookupBarcode(code.trim());
+    setScanning(false);
+
+    if (external) {
+      setExternalInfo({ barcode: code.trim(), name: external.name, brand: external.brand });
+      setScanMode('external');
+    } else {
+      // 3. No encontrado en ningún lado → entrada manual
+      setExternalInfo({ barcode: code.trim(), name: '', brand: null });
+      setScanMode('manual');
+    }
     setScanQty(1);
+    setScanPrice('');
+    setScanManualName('');
   }
 
-  function confirmScanItem() {
+  function cancelScanDialog() {
+    setScanMode('idle');
+    setScannedProduct(null);
+    setExternalInfo(null);
+    setScanQty(1);
+    setScanPrice('');
+    setScanManualName('');
+    setTimeout(() => barcodeRef.current?.focus(), 100);
+  }
+
+  // Confirmar producto que ya estaba en la base local
+  function confirmLocalItem() {
     if (!scannedProduct || scanQty < 1) return;
     setScanCart(prev => {
       const ex = prev.find(i => i.product.id === scannedProduct.id);
       if (ex) return prev.map(i => i.product.id === scannedProduct.id ? { ...i, quantity: i.quantity + scanQty } : i);
       return [...prev, { product: scannedProduct, quantity: scanQty }];
     });
-    setScannedProduct(null);
-    setScanQty(1);
-    setTimeout(() => barcodeRef.current?.focus(), 100);
+    cancelScanDialog();
+  }
+
+  // Crear producto nuevo (desde OPF o manual) y agregarlo al carrito
+  async function confirmNewProduct() {
+    const price = parseFloat(scanPrice.replace(',', '.'));
+    const name  = scanMode === 'manual' ? scanManualName.trim() : (externalInfo?.name ?? '');
+    if (!externalInfo?.barcode || !name || isNaN(price) || price <= 0 || scanQty < 1) return;
+
+    setCreatingProduct(true);
+    setScanError(null);
+    try {
+      // Upsert en catálogo global
+      const { data: prod, error: pErr } = await supabase
+        .from('products')
+        .upsert(
+          { barcode: externalInfo.barcode, name, brand: externalInfo.brand || null, unit_type: 'unit', created_by: user!.id },
+          { onConflict: 'barcode', ignoreDuplicates: false }
+        )
+        .select('id')
+        .single();
+      if (pErr || !prod) throw new Error('Error al guardar el producto');
+
+      // Upsert en establishment_products
+      const { data: ep, error: epErr } = await supabase
+        .from('establishment_products')
+        .upsert(
+          { establishment_id: establishmentId!, product_id: prod.id, price, stock: 0, stock_min_alert: 5 },
+          { onConflict: 'establishment_id,product_id' }
+        )
+        .select('id')
+        .single();
+      if (epErr || !ep) throw new Error('Error al vincular el producto');
+
+      // Leer la vista con todos los campos que necesita ScanItem
+      const { data: detail } = await supabase
+        .from('establishment_products_detail')
+        .select('*')
+        .eq('id', ep.id)
+        .single();
+      if (!detail) throw new Error('No se pudo leer el producto creado');
+
+      const product = detail as EstablishmentProductDetail;
+      setScanCart(prev => {
+        const ex = prev.find(i => i.product.id === product.id);
+        if (ex) return prev.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + scanQty } : i);
+        return [...prev, { product, quantity: scanQty }];
+      });
+      cancelScanDialog();
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Error al crear producto');
+    } finally {
+      setCreatingProduct(false);
+    }
   }
 
   // ── Create reparto ───────────────────────────────────────────
@@ -402,7 +489,7 @@ export default function RepartoPage() {
             <input
               ref={barcodeRef}
               autoFocus
-              disabled={!!scannedProduct || scanning}
+              disabled={scanMode !== 'idle' || scanning}
               value={barcodeInput}
               onChange={e => setBarcodeInput(e.target.value)}
               onKeyDown={e => {
@@ -428,44 +515,145 @@ export default function RepartoPage() {
           )}
         </div>
 
-        {/* Producto escaneado — confirmar cantidad */}
-        {scannedProduct && (
+        {/* ── Modo LOCAL: producto ya estaba en el sistema ── */}
+        {scanMode === 'local' && scannedProduct && (
           <div className="mb-4 rounded-2xl border-2 border-primary-200 bg-primary-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary-500 mb-1">Producto encontrado</p>
             <p className="font-bold text-primary-900">{scannedProduct.name}</p>
+            {scannedProduct.brand && <p className="text-xs text-primary-500">{scannedProduct.brand}</p>}
             <p className="mb-3 text-sm text-primary-600">{formatCurrency(scannedProduct.price)} c/u</p>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setScanQty(q => Math.max(1, q - 1))}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white"
-                >
+                <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
                   <Minus className="h-4 w-4" />
                 </button>
+                <input type="number" min={1} value={scanQty}
+                  onChange={e => setScanQty(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 rounded-xl border border-slate-200 py-2 text-center text-lg font-black focus:border-primary-700 focus:outline-none" />
+                <button onClick={() => setScanQty(q => q + 1)}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+              <button onClick={confirmLocalItem}
+                className="flex-1 rounded-xl bg-primary-700 py-2.5 text-sm font-bold text-white">
+                Agregar ({scanQty})
+              </button>
+              <button onClick={cancelScanDialog}
+                className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-400 hover:text-red-500">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modo EXTERNAL: encontrado en Open Food Facts ── */}
+        {scanMode === 'external' && externalInfo && (
+          <div className="mb-4 rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-500 mb-1">Producto encontrado en Open Food Facts</p>
+            <div className="mb-3 space-y-2">
+              <div>
+                <label className="text-xs text-blue-600">Nombre</label>
+                <input
+                  value={externalInfo.name}
+                  onChange={e => setExternalInfo(prev => prev ? { ...prev, name: e.target.value } : prev)}
+                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-blue-600">Precio de venta ($)</label>
                 <input
                   type="number"
-                  min={1}
-                  value={scanQty}
-                  onChange={e => setScanQty(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-16 rounded-xl border border-slate-200 py-2 text-center
-                             text-lg font-black focus:border-primary-700 focus:outline-none"
+                  min={0}
+                  step={0.01}
+                  placeholder="0.00"
+                  value={scanPrice}
+                  onChange={e => setScanPrice(e.target.value)}
+                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm focus:border-primary-700 focus:outline-none"
                 />
-                <button
-                  onClick={() => setScanQty(q => q + 1)}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white"
-                >
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
+                  <Minus className="h-4 w-4" />
+                </button>
+                <input type="number" min={1} value={scanQty}
+                  onChange={e => setScanQty(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 rounded-xl border border-slate-200 py-2 text-center text-lg font-black focus:border-primary-700 focus:outline-none" />
+                <button onClick={() => setScanQty(q => q + 1)}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
               <button
-                onClick={confirmScanItem}
-                className="flex-1 rounded-xl bg-primary-700 py-2.5 text-sm font-bold text-white"
+                onClick={confirmNewProduct}
+                disabled={creatingProduct || !scanPrice || !externalInfo.name.trim()}
+                className="flex-1 rounded-xl bg-primary-700 py-2.5 text-sm font-bold text-white disabled:opacity-50"
               >
-                Agregar ({scanQty})
+                {creatingProduct ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : `Agregar (${scanQty})`}
               </button>
+              <button onClick={cancelScanDialog}
+                className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-400 hover:text-red-500">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modo MANUAL: no encontrado en ningún lado ── */}
+        {scanMode === 'manual' && (
+          <div className="mb-4 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 mb-1">Producto no encontrado — ingresar manualmente</p>
+            <div className="mb-3 space-y-2">
+              <div>
+                <label className="text-xs text-amber-700">Nombre del producto</label>
+                <input
+                  autoFocus
+                  value={scanManualName}
+                  onChange={e => setScanManualName(e.target.value)}
+                  placeholder="Ej: Gaseosa Cola 2L"
+                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-amber-700">Precio de venta ($)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  placeholder="0.00"
+                  value={scanPrice}
+                  onChange={e => setScanPrice(e.target.value)}
+                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm focus:border-primary-700 focus:outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
+                  <Minus className="h-4 w-4" />
+                </button>
+                <input type="number" min={1} value={scanQty}
+                  onChange={e => setScanQty(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 rounded-xl border border-slate-200 py-2 text-center text-lg font-black focus:border-primary-700 focus:outline-none" />
+                <button onClick={() => setScanQty(q => q + 1)}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
               <button
-                onClick={() => { setScannedProduct(null); setTimeout(() => barcodeRef.current?.focus(), 50); }}
-                className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-400 hover:text-red-500"
+                onClick={confirmNewProduct}
+                disabled={creatingProduct || !scanPrice || !scanManualName.trim()}
+                className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-bold text-white disabled:opacity-50"
               >
+                {creatingProduct ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : `Agregar (${scanQty})`}
+              </button>
+              <button onClick={cancelScanDialog}
+                className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-400 hover:text-red-500">
                 <X className="h-4 w-4" />
               </button>
             </div>
