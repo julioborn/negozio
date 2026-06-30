@@ -22,9 +22,11 @@ body {
    funcionen en Safari y en modo PWA standalone */
 
 /* ── Inputs en iOS ───────────────────────────────────────────── */
-/* Evita el zoom automático al hacer foco en inputs */
+/* Evita el zoom automático al hacer foco en inputs.
+   !important necesario porque las clases Tailwind (text-sm etc.)
+   tienen mayor especificidad que el selector de elemento. */
 input, select, textarea {
-  font-size: 16px;
+  font-size: 16px !important;
 }
 
 @layer utilities {
