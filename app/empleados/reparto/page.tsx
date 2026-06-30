@@ -105,6 +105,7 @@ export default function RepartoPage() {
   const [scanError,        setScanError]        = useState<string | null>(null);
   const [creating,         setCreating]         = useState(false);
   const [creatingProduct,  setCreatingProduct]  = useState(false);
+  const [scannerFocused,   setScannerFocused]   = useState(false);
   const barcodeRef = useRef<HTMLInputElement>(null);
 
   // ── Nueva venta ─────────────────────────────────────────────
@@ -548,22 +549,58 @@ export default function RepartoPage() {
 
         {/* Barcode input */}
         <div className="mb-4">
+          {/* Indicador de estado del scanner */}
+          {scanMode === 'idle' && (
+            <button
+              onClick={() => barcodeRef.current?.focus()}
+              className={`mb-2 flex w-full items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold transition-colors ${
+                scannerFocused
+                  ? 'bg-green-50 text-green-700'
+                  : 'bg-amber-50 text-amber-700 animate-pulse'
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${scannerFocused ? 'bg-green-500' : 'bg-amber-500'}`} />
+              {scannerFocused ? 'Escáner activo — listo para leer' : 'Tocá aquí para activar el escáner'}
+            </button>
+          )}
           <div className="relative">
             <input
               ref={barcodeRef}
               autoFocus
               disabled={scanMode !== 'idle' || scanning}
               value={barcodeInput}
-              onChange={e => setBarcodeInput(e.target.value)}
+              onChange={e => {
+                const val = e.target.value;
+                // Algunos scanners mandan \n o \r dentro del value en lugar de Enter key
+                if (val.includes('\n') || val.includes('\r')) {
+                  const clean = val.replace(/[\r\n]/g, '').trim();
+                  if (clean) handleBarcodeScan(clean);
+                  return;
+                }
+                setBarcodeInput(val);
+              }}
               onKeyDown={e => {
-                if (e.key === 'Enter' && barcodeInput.trim()) {
-                  handleBarcodeScan(barcodeInput);
+                // Enter y Tab son los terminadores más comunes de scanners
+                if ((e.key === 'Enter' || e.key === 'Tab') && scanMode === 'idle') {
+                  e.preventDefault();
+                  // Leer directo del DOM para evitar el closure stale del estado
+                  const val = (e.target as HTMLInputElement).value.trim();
+                  if (val) handleBarcodeScan(val);
+                }
+              }}
+              onFocus={() => setScannerFocused(true)}
+              onBlur={() => {
+                setScannerFocused(false);
+                // Auto-refocus si no hay diálogo abierto
+                if (scanMode === 'idle' && !scanning) {
+                  setTimeout(() => barcodeRef.current?.focus(), 150);
                 }
               }}
               placeholder="Escaneá con la pistola lectora…"
-              className="block w-full rounded-2xl border-2 border-primary-300 bg-white
-                         px-4 py-4 text-base focus:border-primary-700 focus:outline-none
-                         disabled:bg-slate-50 disabled:text-slate-400"
+              className="block w-full rounded-2xl border-2 bg-white
+                         px-4 py-4 text-base focus:outline-none
+                         disabled:bg-slate-50 disabled:text-slate-400
+                         border-primary-300 focus:border-primary-700"
             />
             {scanning && (
               <div className="absolute right-4 top-1/2 -translate-y-1/2">
