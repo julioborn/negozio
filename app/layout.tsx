@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 
 import { AuthProvider }   from '@/components/auth/AuthProvider';
 import { PullToRefresh }  from '@/components/ui/PullToRefresh';
+import { ScrollToTop }    from '@/components/ui/ScrollToTop';
 import { Toaster }        from '@/components/ui/Toast';
 
 import './globals.css';
@@ -13,6 +14,8 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   minimumScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: 'cover',
   themeColor: '#1700a5',
 };
@@ -37,6 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es">
       <body className={`${inter.variable} font-sans antialiased`}>
+        <ScrollToTop />
         <AuthProvider>{children}</AuthProvider>
         <Toaster />
         <PullToRefresh />
