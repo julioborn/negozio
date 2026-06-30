@@ -1,248 +1,518 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { AlertTriangle, CheckCircle2, Loader2, Minus, Plus, ShoppingBag, Truck, X } from 'lucide-react';
+import {
+  AlertTriangle, ArrowLeft, Banknote, CheckCircle2, ChevronRight,
+  Clock, CreditCard, History, Loader2, MapPin, Minus, Package,
+  Plus, Search, ShoppingCart, Truck, X,
+} from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
 import { useCustomers } from '@/hooks/useCustomers';
-import { useDeliveries, type DeliveryCartItem } from '@/hooks/useDeliveries';
-import { useTravelStocks } from '@/hooks/useTravelStocks';
+import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
-import type { TravelStockItem } from '@/types/database';
+import type {
+  Customer, Delivery, DeliveryPaymentMethod,
+  EstablishmentProductDetail, TravelStockItem,
+} from '@/types/database';
 
-type PayStatus = 'paid' | 'pending';
-type PageState = 'building' | 'confirmed';
+// ─── Types ────────────────────────────────────────────────────
+type RepartoView = 'home' | 'scanning' | 'active' | 'nueva-venta' | 'historial';
+type VentaStep   = 'cliente' | 'productos' | 'pago';
 
+interface ScanItem {
+  product:  EstablishmentProductDetail;
+  quantity: number;
+}
+
+interface CartItem {
+  epId:      string;
+  name:      string;
+  quantity:  number;
+  unitPrice: number;
+}
+
+type DeliveryWithCustomer = Delivery & { customer: Customer };
+
+const PAY_OPTS: { method: DeliveryPaymentMethod; label: string; icon: React.ElementType; active: string }[] = [
+  { method: 'cash',       label: 'Efectivo',          icon: Banknote,    active: 'border-green-400 bg-green-50 text-green-800' },
+  { method: 'transfer',   label: 'Transferencia',     icon: CreditCard,  active: 'border-blue-400 bg-blue-50 text-blue-800'  },
+  { method: 'pending_7',  label: 'Pendiente 7 días',  icon: Clock,       active: 'border-amber-400 bg-amber-50 text-amber-800' },
+  { method: 'pending_15', label: 'Pendiente 15 días', icon: Clock,       active: 'border-orange-400 bg-orange-50 text-orange-800' },
+];
+
+function payLabel(m: DeliveryPaymentMethod | null): string {
+  if (m === 'cash')       return 'Efectivo';
+  if (m === 'transfer')   return 'Transferencia';
+  if (m === 'pending_7')  return 'Pendiente 7 días';
+  if (m === 'pending_15') return 'Pendiente 15 días';
+  return 'Pendiente';
+}
+
+// ─── Page ─────────────────────────────────────────────────────
 export default function RepartoPage() {
-  const { user } = useAuth();
-  const establishmentId = user?.establishment_id ?? null;
-
+  const { user }         = useAuth();
+  const establishmentId  = user?.establishment_id ?? null;
+  const supabase         = useMemo(() => createClient(), []);
   const { customers, isLoading: customersLoading } = useCustomers(establishmentId);
-  const { travelStocks, fetchItems } = useTravelStocks(establishmentId);
-  const { createDelivery, isConfirming, refetch: refetchDebts } = useDeliveries(establishmentId);
 
-  const activeTravelStocks = travelStocks.filter((ts) => ts.status === 'active');
+  // ── View state ──────────────────────────────────────────────
+  const [view,         setView]         = useState<RepartoView>('home');
+  const [initializing, setInitializing] = useState(true);
+  const [activeTsId,   setActiveTsId]   = useState<string | null>(null);
+  const [tsItems,      setTsItems]      = useState<TravelStockItem[]>([]);
 
-  const [selectedTs, setSelectedTs]       = useState<string>('');
-  const [tsItems, setTsItems]             = useState<TravelStockItem[]>([]);
-  const [loadingTs, setLoadingTs]         = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
-  const [cart, setCart]                   = useState<DeliveryCartItem[]>([]);
-  const [payStatus, setPayStatus]         = useState<PayStatus>('paid');
-  const [notes, setNotes]                 = useState('');
-  const [error, setError]                 = useState<string | null>(null);
-  const [pageState, setPageState]         = useState<PageState>('building');
-  const [lastTotal, setLastTotal]         = useState(0);
+  // ── Scanning ────────────────────────────────────────────────
+  const [scanCart,        setScanCart]        = useState<ScanItem[]>([]);
+  const [barcodeInput,    setBarcodeInput]    = useState('');
+  const [scanning,        setScanning]        = useState(false);
+  const [scannedProduct,  setScannedProduct]  = useState<EstablishmentProductDetail | null>(null);
+  const [scanQty,         setScanQty]         = useState(1);
+  const [scanError,       setScanError]       = useState<string | null>(null);
+  const [creating,        setCreating]        = useState(false);
+  const barcodeRef = useRef<HTMLInputElement>(null);
 
-  const handleSelectTs = useCallback(async (tsId: string) => {
-    setSelectedTs(tsId);
+  // ── Nueva venta ─────────────────────────────────────────────
+  const [ventaStep,        setVentaStep]        = useState<VentaStep>('cliente');
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [cart,             setCart]             = useState<CartItem[]>([]);
+  const [payMethod,        setPayMethod]        = useState<DeliveryPaymentMethod>('cash');
+  const [ventaError,       setVentaError]       = useState<string | null>(null);
+  const [isConfirming,     setIsConfirming]     = useState(false);
+  const [lastVenta,        setLastVenta]        = useState<{ customer: Customer; total: number; method: DeliveryPaymentMethod } | null>(null);
+  const [customerSearch,   setCustomerSearch]   = useState('');
+
+  // ── Historial ───────────────────────────────────────────────
+  const [historial,        setHistorial]        = useState<DeliveryWithCustomer[]>([]);
+  const [historialLoading, setHistorialLoading] = useState(false);
+  const [markingPaid,      setMarkingPaid]      = useState<string | null>(null);
+
+  // ── Helpers ─────────────────────────────────────────────────
+  const fetchTsItems = useCallback(async (tsId: string): Promise<TravelStockItem[]> => {
+    const { data } = await supabase
+      .from('travel_stock_items')
+      .select('*')
+      .eq('travel_stock_id', tsId);
+    return (data as TravelStockItem[]) ?? [];
+  }, [supabase]);
+
+  // ── Check for active reparto on mount ───────────────────────
+  useEffect(() => {
+    if (!user || !establishmentId) {
+      if (user && !establishmentId) setInitializing(false);
+      return;
+    }
+    let cancelled = false;
+    async function check() {
+      const { data } = await supabase
+        .from('travel_stocks')
+        .select('*')
+        .eq('establishment_id', establishmentId)
+        .eq('status', 'active')
+        .eq('assigned_to', user!.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (cancelled) return;
+      if (data && data.length > 0) {
+        const ts = data[0];
+        setActiveTsId(ts.id);
+        const items = await fetchTsItems(ts.id);
+        if (!cancelled) { setTsItems(items); setView('active'); }
+      }
+      if (!cancelled) setInitializing(false);
+    }
+    check();
+    return () => { cancelled = true; };
+  }, [user, establishmentId, supabase, fetchTsItems]);
+
+  // ── Barcode scan ─────────────────────────────────────────────
+  async function handleBarcodeScan(code: string) {
+    if (!code.trim() || !establishmentId) return;
+    setScanError(null);
+    setScanning(true);
+    setBarcodeInput('');
+    const { data } = await supabase
+      .from('establishment_products_detail')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .eq('barcode', code.trim())
+      .maybeSingle();
+    setScanning(false);
+    if (!data) {
+      setScanError(`Producto no encontrado: ${code.trim()}`);
+      setTimeout(() => barcodeRef.current?.focus(), 50);
+      return;
+    }
+    setScannedProduct(data as EstablishmentProductDetail);
+    setScanQty(1);
+  }
+
+  function confirmScanItem() {
+    if (!scannedProduct || scanQty < 1) return;
+    setScanCart(prev => {
+      const ex = prev.find(i => i.product.id === scannedProduct.id);
+      if (ex) return prev.map(i => i.product.id === scannedProduct.id ? { ...i, quantity: i.quantity + scanQty } : i);
+      return [...prev, { product: scannedProduct, quantity: scanQty }];
+    });
+    setScannedProduct(null);
+    setScanQty(1);
+    setTimeout(() => barcodeRef.current?.focus(), 100);
+  }
+
+  // ── Create reparto ───────────────────────────────────────────
+  async function handleCreateReparto() {
+    if (!establishmentId || !user || scanCart.length === 0) return;
+    setCreating(true);
+    setScanError(null);
+    try {
+      const { data, error } = await supabase.rpc('create_reparto_stock', {
+        p_establishment_id: establishmentId,
+        p_assigned_to:      user.id,
+        p_created_by:       user.id,
+        p_items: scanCart.map(i => ({
+          ep_id:      i.product.id,
+          name:       i.product.name,
+          quantity:   i.quantity,
+          unit_price: i.product.price,
+        })),
+      });
+      if (error) throw new Error(error.message);
+      const tsId = (data as { travel_stock_id: string }).travel_stock_id;
+      setActiveTsId(tsId);
+      const items = await fetchTsItems(tsId);
+      setTsItems(items);
+      setScanCart([]);
+      setView('active');
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Error al iniciar el reparto');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // ── Close reparto ────────────────────────────────────────────
+  async function handleCloseReparto() {
+    if (!activeTsId) return;
+    if (!confirm('¿Cerrar el reparto del día? Los productos no vendidos quedarán solo como registro.')) return;
+    const { error } = await supabase.rpc('close_reparto', { p_travel_stock_id: activeTsId });
+    if (error) { alert(error.message); return; }
+    setActiveTsId(null);
+    setTsItems([]);
+    setLastVenta(null);
+    setView('home');
+  }
+
+  // ── Nueva venta ─────────────────────────────────────────────
+  function startNuevaVenta() {
+    setSelectedCustomer(null);
     setCart([]);
-    if (!tsId) { setTsItems([]); return; }
-    setLoadingTs(true);
-    const items = await fetchItems(tsId);
-    setTsItems(items);
-    setLoadingTs(false);
-  }, [fetchItems]);
+    setPayMethod('cash');
+    setVentaError(null);
+    setVentaStep('cliente');
+    setCustomerSearch('');
+    setView('nueva-venta');
+  }
 
   function addToCart(item: TravelStockItem) {
     const remaining = item.quantity_assigned - item.quantity_sold;
     if (remaining <= 0) return;
-    setCart((prev) => {
-      const ex = prev.find((c) => c.epId === item.establishment_product_id);
-      if (ex) {
-        return prev.map((c) => c.epId === item.establishment_product_id
-          ? { ...c, quantity: Math.min(c.quantity + 1, remaining) } : c);
-      }
-      return [...prev, {
-        epId: item.establishment_product_id,
-        name: item.product_name,
-        quantity: 1,
-        unitPrice: item.unit_price,
-      }];
+    setCart(prev => {
+      const ex = prev.find(c => c.epId === item.establishment_product_id);
+      if (ex) return prev.map(c => c.epId === item.establishment_product_id
+        ? { ...c, quantity: Math.min(c.quantity + 1, remaining) } : c);
+      return [...prev, { epId: item.establishment_product_id, name: item.product_name, quantity: 1, unitPrice: item.unit_price }];
     });
   }
 
   function updateCartQty(epId: string, qty: number) {
-    if (qty < 1) return;
-    setCart((prev) => prev.map((c) => c.epId === epId ? { ...c, quantity: qty } : c));
+    if (qty < 1) { setCart(prev => prev.filter(c => c.epId !== epId)); return; }
+    setCart(prev => prev.map(c => c.epId === epId ? { ...c, quantity: qty } : c));
   }
 
-  const total = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
-
-  async function handleConfirm() {
-    if (!selectedCustomer) { setError('Seleccioná un cliente'); return; }
-    if (cart.length === 0) { setError('Agregá al menos un producto'); return; }
-    setError(null);
+  async function handleConfirmVenta() {
+    if (!selectedCustomer || cart.length === 0 || !activeTsId || !establishmentId || !user) return;
+    setVentaError(null);
+    setIsConfirming(true);
+    const payStatus = (payMethod === 'cash' || payMethod === 'transfer') ? 'paid' : 'pending';
     try {
-      await createDelivery({
-        travelStockId: selectedTs || null,
-        customerId: selectedCustomer,
-        paymentStatus: payStatus,
-        notes,
-        items: cart,
+      const { error } = await supabase.rpc('create_delivery', {
+        p_establishment_id: establishmentId,
+        p_travel_stock_id:  activeTsId,
+        p_customer_id:      selectedCustomer.id,
+        p_sold_by:          user.id,
+        p_payment_status:   payStatus,
+        p_notes:            null,
+        p_payment_method:   payMethod,
+        p_items: cart.map(i => ({
+          ep_id:      i.epId,
+          name:       i.name,
+          quantity:   i.quantity,
+          unit_price: i.unitPrice,
+        })),
       });
-      setLastTotal(total);
-      setPageState('confirmed');
+      if (error) throw new Error(error.message);
+
+      const total = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
+      setLastVenta({ customer: selectedCustomer, total, method: payMethod });
+      const updated = await fetchTsItems(activeTsId);
+      setTsItems(updated);
+      setView('active');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al registrar la entrega');
+      setVentaError(err instanceof Error ? err.message : 'Error al registrar la venta');
+    } finally {
+      setIsConfirming(false);
     }
   }
 
-  function handleNewDelivery() {
-    setCart([]);
-    setSelectedCustomer('');
-    setNotes('');
-    setPayStatus('paid');
-    setError(null);
-    setPageState('building');
+  // ── Historial ────────────────────────────────────────────────
+  const loadHistorial = useCallback(async () => {
+    if (!establishmentId) return;
+    setHistorialLoading(true);
+    let query = supabase
+      .from('deliveries')
+      .select('*, customer:customers(*)')
+      .eq('establishment_id', establishmentId)
+      .order('created_at', { ascending: false });
+
+    if (activeTsId) {
+      query = query.eq('travel_stock_id', activeTsId);
+    } else {
+      query = query.limit(50);
+    }
+
+    const { data } = await query;
+    setHistorial((data ?? []) as DeliveryWithCustomer[]);
+    setHistorialLoading(false);
+  }, [supabase, establishmentId, activeTsId]);
+
+  async function handleMarkPaid(deliveryId: string) {
+    setMarkingPaid(deliveryId);
+    try {
+      const { error } = await supabase.rpc('mark_delivery_paid', { p_delivery_id: deliveryId });
+      if (error) throw new Error(error.message);
+      setHistorial(prev => prev.map(d =>
+        d.id === deliveryId
+          ? { ...d, payment_status: 'paid' as const, paid_at: new Date().toISOString() }
+          : d
+      ));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error');
+    } finally {
+      setMarkingPaid(null);
+    }
   }
 
-  const sel = 'block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base focus:border-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-700';
+  // ── Customer grouping ────────────────────────────────────────
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearch.trim()) return customers;
+    const q = customerSearch.toLowerCase();
+    return customers.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      (c.locality ?? '').toLowerCase().includes(q) ||
+      (c.barrio   ?? '').toLowerCase().includes(q)
+    );
+  }, [customers, customerSearch]);
 
-  // ── Confirmación ──────────────────────────────────────────
-  if (pageState === 'confirmed') {
-    const customer = customers.find((c) => c.id === selectedCustomer);
+  const groupedCustomers = useMemo(() => {
+    const map = new Map<string, Customer[]>();
+    for (const c of filteredCustomers) {
+      const key = c.locality || 'Sin localidad';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [filteredCustomers]);
+
+  // ── Cart total ───────────────────────────────────────────────
+  const cartTotal = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
+
+  // ─────────────────────────────────────────────────────────────
+  if (initializing) {
     return (
-      <div className="mx-auto max-w-md p-4">
-        <div className="flex flex-col items-center gap-5 py-6 text-center">
-          <div className={`flex h-16 w-16 items-center justify-center rounded-full ${
-            payStatus === 'paid' ? 'bg-green-100' : 'bg-amber-100'
-          }`}>
-            <CheckCircle2 className={`h-9 w-9 ${payStatus === 'paid' ? 'text-green-600' : 'text-amber-600'}`} />
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary-700" />
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // HOME
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'home') {
+    return (
+      <div className="mx-auto max-w-md p-5 pt-10">
+        <div className="mb-10 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-100">
+            <Truck className="h-8 w-8 text-primary-700" />
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">Entrega registrada</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {customer?.name} · {formatCurrency(lastTotal)}
-            </p>
-            <p className={`mt-2 inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
-              payStatus === 'paid'
-                ? 'bg-green-100 text-green-700'
-                : 'bg-amber-100 text-amber-700'
-            }`}>
-              {payStatus === 'paid' ? 'Pagado en el momento' : 'Fiado — pendiente de cobro'}
-            </p>
-          </div>
-          <button onClick={handleNewDelivery}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary-700 text-base font-bold text-white">
-            Nueva entrega
+          <h1 className="text-2xl font-black text-slate-900">Reparto</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Hola, {user?.full_name?.split(' ')[0]} 👋
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <button
+            onClick={() => { setScanCart([]); setScanError(null); setView('scanning'); }}
+            className="flex h-24 w-full flex-col items-center justify-center gap-2 rounded-2xl
+                       bg-primary-700 text-white shadow-lg transition-transform active:scale-[0.97]"
+          >
+            <Truck className="h-7 w-7" />
+            <span className="text-xl font-black">Iniciar Reparto</span>
+          </button>
+
+          <button
+            onClick={async () => { setView('historial'); await loadHistorial(); }}
+            className="flex h-16 w-full items-center justify-center gap-2 rounded-2xl border-2
+                       border-slate-200 bg-white text-slate-700 transition-transform active:scale-[0.97]"
+          >
+            <History className="h-5 w-5 text-slate-400" />
+            <span className="text-base font-semibold">Historial de repartos</span>
           </button>
         </div>
       </div>
     );
   }
 
-  // ── Formulario ────────────────────────────────────────────
-  return (
-    <div className="mx-auto max-w-md pb-32 p-4">
-      <div className="mb-6">
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <ShoppingBag className="h-6 w-6 text-primary-700" />
-          Registrar entrega
-        </h1>
-      </div>
-
-      <div className="flex flex-col gap-5">
-        {/* Viaje */}
-        {activeTravelStocks.length > 0 && (
+  // ─────────────────────────────────────────────────────────────
+  // SCANNING — Carga de camioneta
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'scanning') {
+    return (
+      <div className="mx-auto max-w-md p-4 pb-32">
+        {/* Header */}
+        <div className="mb-5 flex items-center gap-3">
+          <button
+            onClick={() => setView('home')}
+            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
           <div>
-            <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-              Viaje <span className="text-slate-400 font-normal">(opcional)</span>
-            </label>
-            <div className="relative">
-              <Truck className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <select value={selectedTs} onChange={(e) => handleSelectTs(e.target.value)}
-                className={`${sel} pl-10`}>
-                <option value="">Sin viaje asignado</option>
-                {activeTravelStocks.map((ts) => (
-                  <option key={ts.id} value={ts.id}>{ts.name}</option>
-                ))}
-              </select>
+            <h1 className="text-xl font-black text-slate-900">Cargar camioneta</h1>
+            <p className="text-xs text-slate-500">Escaneá los productos que llevás hoy</p>
+          </div>
+        </div>
+
+        {/* Barcode input */}
+        <div className="mb-4">
+          <div className="relative">
+            <input
+              ref={barcodeRef}
+              autoFocus
+              disabled={!!scannedProduct || scanning}
+              value={barcodeInput}
+              onChange={e => setBarcodeInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && barcodeInput.trim()) {
+                  handleBarcodeScan(barcodeInput);
+                }
+              }}
+              placeholder="Escaneá con la pistola lectora…"
+              className="block w-full rounded-2xl border-2 border-primary-300 bg-white
+                         px-4 py-4 text-base focus:border-primary-700 focus:outline-none
+                         disabled:bg-slate-50 disabled:text-slate-400"
+            />
+            {scanning && (
+              <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                <Loader2 className="h-5 w-5 animate-spin text-primary-700" />
+              </div>
+            )}
+          </div>
+          {scanError && (
+            <p className="mt-2 flex items-center gap-1.5 text-sm text-red-600">
+              <AlertTriangle className="h-4 w-4 shrink-0" />{scanError}
+            </p>
+          )}
+        </div>
+
+        {/* Producto escaneado — confirmar cantidad */}
+        {scannedProduct && (
+          <div className="mb-4 rounded-2xl border-2 border-primary-200 bg-primary-50 p-4">
+            <p className="font-bold text-primary-900">{scannedProduct.name}</p>
+            <p className="mb-3 text-sm text-primary-600">{formatCurrency(scannedProduct.price)} c/u</p>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setScanQty(q => Math.max(1, q - 1))}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  value={scanQty}
+                  onChange={e => setScanQty(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-16 rounded-xl border border-slate-200 py-2 text-center
+                             text-lg font-black focus:border-primary-700 focus:outline-none"
+                />
+                <button
+                  onClick={() => setScanQty(q => q + 1)}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+              <button
+                onClick={confirmScanItem}
+                className="flex-1 rounded-xl bg-primary-700 py-2.5 text-sm font-bold text-white"
+              >
+                Agregar ({scanQty})
+              </button>
+              <button
+                onClick={() => { setScannedProduct(null); setTimeout(() => barcodeRef.current?.focus(), 50); }}
+                className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-400 hover:text-red-500"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           </div>
         )}
 
-        {/* Cliente */}
-        <div>
-          <label className="mb-1.5 block text-sm font-semibold text-slate-700">Cliente *</label>
-          <select value={selectedCustomer} onChange={(e) => setSelectedCustomer(e.target.value)}
-            className={sel} disabled={customersLoading}>
-            <option value="">Seleccioná un cliente…</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}{c.locality ? ` — ${c.locality}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Productos del viaje */}
-        {selectedTs && tsItems.length > 0 && (
+        {/* Lista de productos cargados */}
+        {scanCart.length > 0 && (
           <div>
-            <p className="mb-2 text-sm font-semibold text-slate-700">Productos del viaje</p>
-            {loadingTs ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {tsItems.map((item) => {
-                  const remaining = item.quantity_assigned - item.quantity_sold;
-                  const inCart = cart.find((c) => c.epId === item.establishment_product_id);
-                  return (
-                    <button key={item.id} onClick={() => addToCart(item)}
-                      disabled={remaining <= 0}
-                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left disabled:opacity-40">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">{item.product_name}</p>
-                        <p className="text-xs text-slate-400">
-                          Disponible: {remaining} · {formatCurrency(item.unit_price)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {inCart && (
-                          <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-bold text-primary-700">
-                            ×{inCart.quantity}
-                          </span>
-                        )}
-                        <Plus className="h-5 w-5 text-primary-700" />
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Carrito */}
-        {cart.length > 0 && (
-          <div>
-            <p className="mb-2 text-sm font-semibold text-slate-700">Productos a entregar</p>
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-              {cart.map((item) => (
-                <div key={item.epId} className="flex items-center gap-3 border-b border-slate-50 px-4 py-3 last:border-0">
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-900">{item.name}</p>
-                    <p className="text-xs text-slate-400">{formatCurrency(item.unitPrice)} c/u</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {scanCart.length} producto{scanCart.length !== 1 ? 's' : ''} cargado{scanCart.length !== 1 ? 's' : ''}
+            </p>
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {scanCart.map((item, i) => (
+                <div
+                  key={item.product.id}
+                  className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">{item.product.name}</p>
+                    <p className="text-xs text-slate-400">{formatCurrency(item.product.price)} c/u</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => updateCartQty(item.epId ?? '', item.quantity - 1)}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200">
-                      <Minus className="h-3.5 w-3.5" />
+                    <button
+                      onClick={() => setScanCart(prev =>
+                        prev.map(p => p.product.id === item.product.id
+                          ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p)
+                      )}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white"
+                    >
+                      <Minus className="h-3 w-3" />
                     </button>
-                    <span className="w-8 text-center text-base font-bold tabular-nums">{item.quantity}</span>
-                    <button onClick={() => updateCartQty(item.epId ?? '', item.quantity + 1)}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white">
-                      <Plus className="h-3.5 w-3.5" />
+                    <span className="w-8 text-center text-sm font-bold tabular-nums">{item.quantity}</span>
+                    <button
+                      onClick={() => setScanCart(prev =>
+                        prev.map(p => p.product.id === item.product.id
+                          ? { ...p, quantity: p.quantity + 1 } : p)
+                      )}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-700 text-white"
+                    >
+                      <Plus className="h-3 w-3" />
                     </button>
                   </div>
-                  <span className="w-20 text-right text-sm font-semibold tabular-nums">
-                    {formatCurrency(item.unitPrice * item.quantity)}
-                  </span>
-                  <button onClick={() => setCart((prev) => prev.filter((c) => c.epId !== item.epId))}
-                    className="text-slate-300 hover:text-red-500">
+                  <button
+                    onClick={() => setScanCart(prev => prev.filter(p => p.product.id !== item.product.id))}
+                    className="text-slate-300 hover:text-red-500"
+                  >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -251,66 +521,464 @@ export default function RepartoPage() {
           </div>
         )}
 
-        {/* Notas */}
-        <div>
-          <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-            Notas <span className="text-slate-400 font-normal">(opcional)</span>
-          </label>
-          <input value={notes} onChange={(e) => setNotes(e.target.value)}
-            placeholder="Observaciones de la entrega…"
-            className="block w-full rounded-xl border border-slate-200 px-4 py-3 text-base focus:border-primary-700 focus:outline-none" />
-        </div>
-
-        {/* Cobro */}
-        <div>
-          <p className="mb-2 text-sm font-semibold text-slate-700">Forma de cobro</p>
-          <div className="grid grid-cols-2 gap-3">
-            {([
-              { value: 'paid'    as const, label: 'Pagado ahora', color: 'border-green-400 bg-green-50 text-green-700' },
-              { value: 'pending' as const, label: 'Fiado',        color: 'border-amber-400 bg-amber-50 text-amber-700' },
-            ]).map(({ value, label, color }) => (
-              <button key={value} onClick={() => setPayStatus(value)}
-                className={`rounded-xl border-2 py-4 text-base font-bold transition-all ${
-                  payStatus === value ? color : 'border-slate-200 bg-white text-slate-500'
-                }`}>
-                {label}
+        {/* Botón iniciar ruta */}
+        {scanCart.length > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 border-t border-slate-100 bg-white/95 p-4 backdrop-blur-sm">
+            <div className="mx-auto max-w-md">
+              <button
+                onClick={handleCreateReparto}
+                disabled={creating}
+                className="flex h-16 w-full items-center justify-center gap-3 rounded-2xl
+                           bg-green-600 text-xl font-black text-white
+                           transition-transform active:scale-[0.97] disabled:opacity-50"
+              >
+                {creating
+                  ? <Loader2 className="h-6 w-6 animate-spin" />
+                  : <Truck className="h-6 w-6" />
+                }
+                {creating ? 'Iniciando reparto…' : 'Iniciar ruta'}
               </button>
-            ))}
-          </div>
-          {payStatus === 'pending' && (
-            <p className="mt-2 text-center text-xs text-amber-600">
-              Quedará registrado como deuda pendiente en Cobros
-            </p>
-          )}
-        </div>
-
-        {error && (
-          <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            <AlertTriangle className="h-4 w-4 shrink-0" />{error}
+            </div>
           </div>
         )}
       </div>
+    );
+  }
 
-      {/* Confirmar fijo abajo */}
-      {cart.length > 0 && selectedCustomer && (
-        <div className="fixed bottom-0 left-0 right-0 border-t border-slate-200 bg-white/95 p-4 backdrop-blur-sm">
-          <div className="mx-auto max-w-md">
-            <div className="mb-2 flex items-center justify-between text-sm text-slate-600">
-              <span>{cart.length} productos</span>
-              <span className="font-bold text-slate-900">{formatCurrency(total)}</span>
-            </div>
-            <button onClick={handleConfirm} disabled={isConfirming}
-              className={`flex h-16 w-full items-center justify-center gap-3 rounded-2xl text-xl font-black text-white transition-all active:scale-[0.97] disabled:opacity-50 ${
-                payStatus === 'paid' ? 'bg-green-600' : 'bg-amber-500'
-              }`}>
-              {isConfirming
-                ? <Loader2 className="h-6 w-6 animate-spin" />
-                : payStatus === 'paid' ? 'Confirmar entrega' : 'Registrar fiado'
-              }
-            </button>
+  // ─────────────────────────────────────────────────────────────
+  // ACTIVE — En ruta
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'active') {
+    const totalCargados  = tsItems.reduce((s, i) => s + i.quantity_assigned, 0);
+    const totalVendidos  = tsItems.reduce((s, i) => s + i.quantity_sold,     0);
+    const totalRestantes = totalCargados - totalVendidos;
+
+    return (
+      <div className="mx-auto max-w-md p-4 pt-6">
+        {/* Status header */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-black text-slate-900">En ruta</h1>
+            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+              ● Activo
+            </span>
+          </div>
+
+          {/* Resumen stock */}
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {[
+              { label: 'Cargados',  value: totalCargados,  color: 'text-slate-900' },
+              { label: 'Vendidos',  value: totalVendidos,  color: 'text-green-700' },
+              { label: 'Restantes', value: totalRestantes, color: 'text-slate-900' },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="rounded-xl bg-slate-50 p-3 text-center">
+                <p className={`text-2xl font-black tabular-nums ${color}`}>{value}</p>
+                <p className="text-xs text-slate-500">{label}</p>
+              </div>
+            ))}
           </div>
         </div>
-      )}
-    </div>
-  );
+
+        {/* Última venta */}
+        {lastVenta && (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-green-900">{lastVenta.customer.name}</p>
+              <p className="text-xs text-green-700">
+                {formatCurrency(lastVenta.total)} · {payLabel(lastVenta.method)}
+              </p>
+            </div>
+            <button onClick={() => setLastVenta(null)} className="text-green-400">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Acciones principales */}
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={startNuevaVenta}
+            className="flex h-20 w-full items-center justify-center gap-3 rounded-2xl
+                       bg-primary-700 text-white shadow-lg transition-transform active:scale-[0.97]"
+          >
+            <ShoppingCart className="h-7 w-7" />
+            <span className="text-xl font-black">Nueva Venta</span>
+          </button>
+
+          <button
+            onClick={async () => { setView('historial'); await loadHistorial(); }}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
+                       border-2 border-slate-200 bg-white text-slate-700
+                       transition-transform active:scale-[0.97]"
+          >
+            <History className="h-5 w-5 text-slate-400" />
+            <span className="text-sm font-semibold">Ver ventas del día</span>
+          </button>
+
+          <button
+            onClick={handleCloseReparto}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
+                       border-2 border-red-200 bg-red-50 text-red-700
+                       transition-transform active:scale-[0.97]"
+          >
+            <X className="h-5 w-5" />
+            <span className="text-sm font-semibold">Cerrar reparto del día</span>
+          </button>
+        </div>
+
+        {/* Stock en camioneta */}
+        {tsItems.length > 0 && (
+          <div className="mt-6">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Stock en camioneta
+            </p>
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {tsItems.map((item, i) => {
+                const remaining = item.quantity_assigned - item.quantity_sold;
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-center justify-between px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}
+                  >
+                    <p className="text-sm text-slate-800">{item.product_name}</p>
+                    <div className="flex gap-4 text-xs tabular-nums">
+                      <span className="text-slate-400">vendidos: {item.quantity_sold}</span>
+                      <span className={remaining === 0 ? 'text-slate-400' : 'font-bold text-slate-900'}>
+                        quedan: {remaining}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // NUEVA VENTA — Sub-step: CLIENTE
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'nueva-venta' && ventaStep === 'cliente') {
+    return (
+      <div className="mx-auto max-w-md p-4 pb-6">
+        <div className="mb-5 flex items-center gap-3">
+          <button onClick={() => setView('active')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <h1 className="text-xl font-black text-slate-900">¿A quién le entregás?</h1>
+        </div>
+
+        {/* Buscador */}
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            autoFocus
+            value={customerSearch}
+            onChange={e => setCustomerSearch(e.target.value)}
+            placeholder="Buscar cliente…"
+            className="block w-full rounded-xl border border-slate-200 py-3 pl-9 pr-4
+                       text-sm focus:border-primary-700 focus:outline-none"
+          />
+        </div>
+
+        {customersLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {groupedCustomers.map(([locality, group]) => (
+              <div key={locality}>
+                <div className="mb-1.5 flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{locality}</p>
+                </div>
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  {group.map((c, i) => (
+                    <button
+                      key={c.id}
+                      onClick={() => { setSelectedCustomer(c); setVentaStep('productos'); }}
+                      className={`flex w-full items-center justify-between px-4 py-3 text-left
+                                  hover:bg-slate-50 active:bg-primary-50
+                                  ${i > 0 ? 'border-t border-slate-50' : ''}`}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{c.name}</p>
+                        {c.barrio && <p className="text-xs text-slate-400">{c.barrio}</p>}
+                        {c.total_debt > 0 && (
+                          <p className="text-xs font-medium text-red-600">
+                            Debe: {formatCurrency(c.total_debt)}
+                          </p>
+                        )}
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {groupedCustomers.length === 0 && (
+              <p className="py-10 text-center text-sm text-slate-400">No se encontraron clientes</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // NUEVA VENTA — Sub-step: PRODUCTOS
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'nueva-venta' && ventaStep === 'productos') {
+    return (
+      <div className="mx-auto max-w-md p-4 pb-36">
+        <div className="mb-5 flex items-center gap-3">
+          <button onClick={() => setVentaStep('cliente')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-xl font-black text-slate-900">{selectedCustomer?.name}</h1>
+            <p className="text-xs text-slate-500">Seleccioná los productos</p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {tsItems.map(item => {
+            const remaining = item.quantity_assigned - item.quantity_sold;
+            const inCart    = cart.find(c => c.epId === item.establishment_product_id);
+            return (
+              <div
+                key={item.id}
+                className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white ${
+                  remaining <= 0
+                    ? 'border-slate-100 opacity-40'
+                    : inCart
+                    ? 'border-primary-300 bg-primary-50'
+                    : 'border-slate-200'
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-900">{item.product_name}</p>
+                  <p className="text-xs text-slate-400">
+                    {formatCurrency(item.unit_price)} · quedan {remaining}
+                  </p>
+                </div>
+
+                {remaining > 0 && (
+                  <div className="flex items-center gap-2">
+                    {inCart ? (
+                      <>
+                        <button
+                          onClick={() => updateCartQty(item.establishment_product_id, inCart.quantity - 1)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white"
+                        >
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="w-8 text-center text-base font-black tabular-nums">{inCart.quantity}</span>
+                        <button
+                          onClick={() => updateCartQty(item.establishment_product_id, Math.min(inCart.quantity + 1, remaining))}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => addToCart(item)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {cart.length > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 border-t border-slate-100 bg-white/95 p-4 backdrop-blur-sm">
+            <div className="mx-auto max-w-md">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-slate-500">{cart.length} producto{cart.length !== 1 ? 's' : ''}</span>
+                <span className="font-black text-slate-900">{formatCurrency(cartTotal)}</span>
+              </div>
+              <button
+                onClick={() => setVentaStep('pago')}
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
+                           bg-primary-700 text-base font-black text-white
+                           transition-transform active:scale-[0.97]"
+              >
+                Elegir forma de pago
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // NUEVA VENTA — Sub-step: PAGO
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'nueva-venta' && ventaStep === 'pago') {
+    return (
+      <div className="mx-auto max-w-md p-4">
+        <div className="mb-5 flex items-center gap-3">
+          <button onClick={() => setVentaStep('productos')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-xl font-black text-slate-900">¿Cómo pagó?</h1>
+            <p className="text-xs text-slate-500">
+              {selectedCustomer?.name} · {formatCurrency(cartTotal)}
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          {PAY_OPTS.map(({ method, label, icon: Icon, active }) => (
+            <button
+              key={method}
+              onClick={() => setPayMethod(method)}
+              className={`flex flex-col items-center gap-2 rounded-2xl border-2 py-6
+                          transition-all active:scale-[0.97] ${
+                payMethod === method ? active : 'border-slate-200 bg-white text-slate-500'
+              }`}
+            >
+              <Icon className="h-6 w-6" />
+              <span className="text-center text-sm font-bold leading-tight">{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {ventaError && (
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <AlertTriangle className="h-4 w-4 shrink-0" />{ventaError}
+          </div>
+        )}
+
+        <button
+          onClick={handleConfirmVenta}
+          disabled={isConfirming}
+          className={`flex h-16 w-full items-center justify-center gap-3 rounded-2xl
+                      text-xl font-black text-white
+                      transition-transform active:scale-[0.97] disabled:opacity-50 ${
+            payMethod === 'cash'     ? 'bg-green-600' :
+            payMethod === 'transfer' ? 'bg-blue-600'  :
+                                       'bg-amber-500'
+          }`}
+        >
+          {isConfirming
+            ? <Loader2 className="h-6 w-6 animate-spin" />
+            : <CheckCircle2 className="h-6 w-6" />
+          }
+          {isConfirming ? 'Registrando…' : 'Confirmar venta'}
+        </button>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // HISTORIAL
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'historial') {
+    const paid    = historial.filter(d => d.payment_status === 'paid');
+    const pending = historial.filter(d => d.payment_status === 'pending');
+    const totalPaid    = paid.reduce((s, d)    => s + Number(d.total_amount), 0);
+    const totalPending = pending.reduce((s, d) => s + Number(d.total_amount), 0);
+
+    return (
+      <div className="mx-auto max-w-md p-4 pb-8">
+        <div className="mb-5 flex items-center gap-3">
+          <button
+            onClick={() => setView(activeTsId ? 'active' : 'home')}
+            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <h1 className="text-xl font-black text-slate-900">
+            {activeTsId ? 'Ventas del día' : 'Historial de repartos'}
+          </h1>
+        </div>
+
+        {/* Resumen */}
+        {historial.length > 0 && (
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-center">
+              <p className="text-lg font-black text-green-800 tabular-nums">{formatCurrency(totalPaid)}</p>
+              <p className="text-xs text-green-600">{paid.length} cobrada{paid.length !== 1 ? 's' : ''}</p>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-center">
+              <p className="text-lg font-black text-amber-800 tabular-nums">{formatCurrency(totalPending)}</p>
+              <p className="text-xs text-amber-600">{pending.length} pendiente{pending.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+        )}
+
+        {historialLoading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+          </div>
+        ) : historial.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-14 text-center">
+            <Package className="h-12 w-12 text-slate-200" />
+            <p className="text-sm text-slate-400">No hay ventas registradas aún</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {historial.map(d => (
+              <div
+                key={d.id}
+                className={`rounded-xl border-2 p-4 ${
+                  d.payment_status === 'paid'
+                    ? 'border-green-200 bg-green-50'
+                    : 'border-amber-200 bg-amber-50'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-slate-900">{d.customer?.name}</p>
+                    <p className="text-sm font-bold text-slate-700 tabular-nums">
+                      {formatCurrency(Number(d.total_amount))}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {new Date(d.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                      {' · '}
+                      {payLabel(d.payment_method)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    {d.payment_status === 'pending' ? (
+                      <button
+                        onClick={() => handleMarkPaid(d.id)}
+                        disabled={markingPaid === d.id}
+                        className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5
+                                   text-xs font-bold text-white disabled:opacity-50"
+                      >
+                        {markingPaid === d.id
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <CheckCircle2 className="h-3 w-3" />
+                        }
+                        Cobrar
+                      </button>
+                    ) : (
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
 }

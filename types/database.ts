@@ -4,6 +4,7 @@ export type SaleChannel = 'local' | 'mercadolibre' | 'instagram' | 'whatsapp' | 
 export type StockMovementType = 'in' | 'out' | 'adjustment';
 export type StockMovementReason = 'supplier' | 'sale' | 'return' | 'loss' | 'manual' | 'correction' | 'external_sale' | 'travel_stock' | 'travel_return';
 export type DeliveryPaymentStatus = 'paid' | 'pending';
+export type DeliveryPaymentMethod = 'cash' | 'transfer' | 'pending_7' | 'pending_15';
 export type TravelStockStatus = 'active' | 'completed' | 'cancelled';
 export type PaymentMethod = 'cash' | 'card' | 'transfer' | 'mercadopago' | 'other';
 export type UnitType = 'unit' | 'kg' | 'liter' | 'pack' | 'gram';
@@ -272,6 +273,7 @@ export interface Delivery {
   customer_id: string;
   sold_by: string;
   payment_status: DeliveryPaymentStatus;
+  payment_method: DeliveryPaymentMethod | null;
   total_amount: number;
   paid_at: string | null;
   notes: string | null;
