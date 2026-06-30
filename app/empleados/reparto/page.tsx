@@ -76,7 +76,7 @@ export default function RepartoPage() {
   const [scanPrice,        setScanPrice]        = useState('');
   const [scanLocalPrice,   setScanLocalPrice]   = useState('');
   const [scanManualName,   setScanManualName]   = useState('');
-  const [scanManualQty,    setScanManualQty]    = useState('');
+  const [scanNetContent,   setScanNetContent]   = useState('');
   const [scanError,        setScanError]        = useState<string | null>(null);
   const [creating,         setCreating]         = useState(false);
   const [creatingProduct,  setCreatingProduct]  = useState(false);
@@ -156,6 +156,7 @@ export default function RepartoPage() {
       setScanMode('local');
       setScanQty(1);
       setScanLocalPrice(String(local.price));
+      setScanNetContent(local.net_content ?? '');
       setScanning(false);
       return;
     }
@@ -166,16 +167,17 @@ export default function RepartoPage() {
 
     if (external) {
       setExternalInfo({ barcode: code.trim(), name: external.name, brand: external.brand, quantity: external.quantity, unitType: external.unitType });
+      setScanNetContent(external.quantity ?? '');
       setScanMode('external');
     } else {
       // 3. No encontrado en ningún lado → entrada manual
       setExternalInfo({ barcode: code.trim(), name: '', brand: null, quantity: null, unitType: null });
+      setScanNetContent('');
       setScanMode('manual');
     }
     setScanQty(1);
     setScanPrice('');
     setScanManualName('');
-    setScanManualQty('');
   }
 
   function cancelScanDialog() {
@@ -186,7 +188,7 @@ export default function RepartoPage() {
     setScanPrice('');
     setScanLocalPrice('');
     setScanManualName('');
-    setScanManualQty('');
+    setScanNetContent('');
     setTimeout(() => barcodeRef.current?.focus(), 100);
   }
 
@@ -204,6 +206,15 @@ export default function RepartoPage() {
         .eq('id', scannedProduct.id);
     }
 
+    // Guardar net_content si cambió
+    const nc = scanNetContent.trim() || null;
+    if (nc !== (scannedProduct.net_content ?? null)) {
+      await supabase
+        .from('products')
+        .update({ net_content: nc })
+        .eq('id', scannedProduct.product_id);
+    }
+
     const productWithPrice = { ...scannedProduct, price: effectivePrice };
     setScanCart(prev => {
       const ex = prev.find(i => i.product.id === scannedProduct.id);
@@ -219,7 +230,7 @@ export default function RepartoPage() {
     const name  = scanMode === 'manual' ? scanManualName.trim() : (externalInfo?.name ?? '');
     if (!externalInfo?.barcode || !name || isNaN(price) || price <= 0 || scanQty < 1) return;
 
-    const netContent = scanMode === 'manual' ? (scanManualQty.trim() || null) : (externalInfo?.quantity ?? null);
+    const netContent = scanNetContent.trim() || null;
 
     setCreatingProduct(true);
     setScanError(null);
@@ -516,6 +527,7 @@ export default function RepartoPage() {
             <input
               ref={barcodeRef}
               autoFocus
+              inputMode="none"
               disabled={scanMode !== 'idle' || scanning}
               value={barcodeInput}
               onChange={e => setBarcodeInput(e.target.value)}
@@ -548,19 +560,29 @@ export default function RepartoPage() {
             <p className="text-xs font-semibold uppercase tracking-wide text-primary-500 mb-1">Producto encontrado</p>
             <p className="font-bold text-primary-900">{scannedProduct.name}</p>
             {scannedProduct.brand && <p className="text-xs text-primary-500">{scannedProduct.brand}</p>}
-            {scannedProduct.net_content && (
-              <p className="text-xs text-primary-400">{scannedProduct.net_content}</p>
-            )}
-            <div className="mt-2 mb-3">
-              <label className="text-xs font-medium text-primary-600">Precio de venta ($)</label>
-              <input
-                type="number"
-                min={0}
-                step={0.01}
-                value={scanLocalPrice}
-                onChange={e => setScanLocalPrice(e.target.value)}
-                className="block w-full rounded-xl border border-primary-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
-              />
+            <div className="mt-2 mb-3 space-y-2">
+              <div>
+                <label className="text-xs font-medium text-primary-600">Contenido del envase</label>
+                <input
+                  inputMode="text"
+                  value={scanNetContent}
+                  onChange={e => setScanNetContent(e.target.value)}
+                  placeholder="Ej: 500 g, 1 L, 6 x 330 ml"
+                  className="block w-full rounded-xl border border-primary-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-primary-600">Precio de venta ($)</label>
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={scanLocalPrice}
+                  onChange={e => setScanLocalPrice(e.target.value)}
+                  className="block w-full rounded-xl border border-primary-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
@@ -603,19 +625,27 @@ export default function RepartoPage() {
                   className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
                 />
               </div>
-              {externalInfo.quantity && (
-                <p className="text-xs text-blue-500 font-medium">Contenido: {externalInfo.quantity}</p>
-              )}
+              <div>
+                <label className="text-xs text-blue-600">Contenido del envase</label>
+                <input
+                  inputMode="text"
+                  value={scanNetContent}
+                  onChange={e => setScanNetContent(e.target.value)}
+                  placeholder="Ej: 500 g, 1 L, 6 x 330 ml"
+                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
+                />
+              </div>
               <div>
                 <label className="text-xs text-blue-600">Precio de venta ($)</label>
                 <input
+                  inputMode="decimal"
                   type="number"
                   min={0}
                   step={0.01}
                   placeholder="0.00"
                   value={scanPrice}
                   onChange={e => setScanPrice(e.target.value)}
-                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm focus:border-primary-700 focus:outline-none"
+                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
                 />
               </div>
             </div>
@@ -666,22 +696,24 @@ export default function RepartoPage() {
               <div>
                 <label className="text-xs text-amber-700">Contenido del envase (opcional)</label>
                 <input
-                  value={scanManualQty}
-                  onChange={e => setScanManualQty(e.target.value)}
+                  inputMode="text"
+                  value={scanNetContent}
+                  onChange={e => setScanNetContent(e.target.value)}
                   placeholder="Ej: 2 L, 500 g, 6 x 330 ml"
-                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm focus:border-primary-700 focus:outline-none"
+                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
                 />
               </div>
               <div>
                 <label className="text-xs text-amber-700">Precio de venta ($)</label>
                 <input
+                  inputMode="decimal"
                   type="number"
                   min={0}
                   step={0.01}
                   placeholder="0.00"
                   value={scanPrice}
                   onChange={e => setScanPrice(e.target.value)}
-                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm focus:border-primary-700 focus:outline-none"
+                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
                 />
               </div>
             </div>
