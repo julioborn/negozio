@@ -505,14 +505,51 @@ export default function RepartoPage() {
         </div>
 
         <div className="flex flex-col gap-4">
-          <button
-            onClick={() => { setScanCart([]); setScanError(null); setView('scanning'); }}
-            className="flex h-24 w-full flex-col items-center justify-center gap-2 rounded-2xl
-                       bg-primary-700 text-white shadow-lg transition-transform active:scale-[0.97]"
-          >
-            <Truck className="h-7 w-7" />
-            <span className="text-xl font-black">Iniciar Reparto</span>
-          </button>
+          {scanCart.length > 0 ? (
+            /* ── Borrador guardado ── */
+            <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-4">
+              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-amber-600">
+                Carga en borrador
+              </p>
+              <p className="text-lg font-black text-amber-900">
+                {scanCart.length} producto{scanCart.length !== 1 ? 's' : ''}
+                <span className="ml-2 text-sm font-semibold text-amber-600">
+                  ({scanCart.reduce((s, i) => s + i.quantity, 0)} unidades)
+                </span>
+              </p>
+              <p className="mb-4 mt-0.5 text-xs text-amber-500">
+                Volviste al inicio sin confirmar la carga
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setScanError(null); setView('scanning'); }}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl
+                             bg-amber-600 py-3 text-sm font-bold text-white
+                             transition-transform active:scale-[0.97]"
+                >
+                  <Truck className="h-4 w-4" />
+                  Continuar carga
+                </button>
+                <button
+                  onClick={() => { setScanCart([]); setScanError(null); setView('scanning'); }}
+                  className="rounded-xl border-2 border-amber-200 bg-white px-4 py-3
+                             text-sm font-semibold text-amber-700
+                             transition-transform active:scale-[0.97]"
+                >
+                  Nueva
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setScanCart([]); setScanError(null); setView('scanning'); }}
+              className="flex h-24 w-full flex-col items-center justify-center gap-2 rounded-2xl
+                         bg-primary-700 text-white shadow-lg transition-transform active:scale-[0.97]"
+            >
+              <Truck className="h-7 w-7" />
+              <span className="text-xl font-black">Iniciar Reparto</span>
+            </button>
+          )}
 
           <button
             onClick={async () => { setView('historial'); await loadHistorial(); }}
