@@ -12,7 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useCustomers } from '@/hooks/useCustomers';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
-import { KeyboardInput } from '@/components/ui/SoftKeyboard';
+import { ContentInput, KeyboardInput, NumPad } from '@/components/ui/SoftKeyboard';
 import { lookupBarcode } from '@/lib/utils/barcode-lookup';
 import type {
   Customer, Delivery, DeliveryPaymentMethod,
@@ -52,29 +52,24 @@ function payLabel(m: DeliveryPaymentMethod | null): string {
   return 'Pendiente';
 }
 
-// ─── NumPad — entrada de precio sin teclado del sistema ───────
-function NumPad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const keys = ['7','8','9','4','5','6','1','2','3','.','0','⌫'] as const;
-  return (
-    <div className="mt-1 grid grid-cols-3 gap-1.5">
-      {keys.map(k => (
-        <button
-          key={k}
-          type="button"
-          onClick={() => {
-            if (k === '⌫') { onChange(value.slice(0, -1)); return; }
-            if (k === '.' && value.includes('.')) return;
-            if (k !== '.' && value === '0') { onChange(k); return; }
-            onChange(value + k);
-          }}
-          className="flex h-11 items-center justify-center rounded-xl bg-slate-100
-                     text-lg font-bold text-slate-700 active:bg-slate-300 select-none"
-        >
-          {k}
-        </button>
-      ))}
-    </div>
-  );
+// ─── Parsea "500 g", "1.5 L" → { qty, unit } ─────────────────
+function parseNetContent(s: string | null): { qty: string; unit: string } {
+  if (!s) return { qty: '', unit: '' };
+  const m = s.trim().match(/^([\d.,]+)\s*([a-zA-Z]+)/);
+  if (!m) return { qty: '', unit: '' };
+  const qty = m[1].replace(',', '.');
+  const raw = m[2].toLowerCase();
+  const MAP: Record<string, string> = {
+    g: 'g', gr: 'g', gramo: 'g', gramos: 'g', gram: 'g', grams: 'g',
+    kg: 'kg', kilo: 'kg', kilos: 'kg',
+    mg: 'mg',
+    ml: 'ml',
+    l: 'L', lt: 'L', lts: 'L', litro: 'L', litros: 'L', liter: 'L', liters: 'L',
+    cl: 'cl',
+    cc: 'cc',
+    un: 'un', unidad: 'un', unidades: 'un', unit: 'un', units: 'un',
+  };
+  return { qty, unit: MAP[raw] ?? m[2] };
 }
 
 // ─── Page ─────────────────────────────────────────────────────
@@ -102,7 +97,8 @@ export default function RepartoPage() {
   const [scanPrice,        setScanPrice]        = useState('');
   const [scanLocalPrice,   setScanLocalPrice]   = useState('');
   const [scanManualName,   setScanManualName]   = useState('');
-  const [scanNetContent,   setScanNetContent]   = useState('');
+  const [netQty,           setNetQty]           = useState('');
+  const [netUnit,          setNetUnit]          = useState('');
   const [scanError,        setScanError]        = useState<string | null>(null);
   const [creating,         setCreating]         = useState(false);
   const [creatingProduct,  setCreatingProduct]  = useState(false);
@@ -183,7 +179,8 @@ export default function RepartoPage() {
       setScanMode('local');
       setScanQty(1);
       setScanLocalPrice(String(local.price));
-      setScanNetContent(local.net_content ?? '');
+      const lp = parseNetContent(local.net_content ?? '');
+      setNetQty(lp.qty); setNetUnit(lp.unit);
       setScanning(false);
       return;
     }
@@ -194,12 +191,13 @@ export default function RepartoPage() {
 
     if (external) {
       setExternalInfo({ barcode: code.trim(), name: external.name, brand: external.brand, quantity: external.quantity, unitType: external.unitType });
-      setScanNetContent(external.quantity ?? '');
+      const ep = parseNetContent(external.quantity);
+      setNetQty(ep.qty); setNetUnit(ep.unit);
       setScanMode('external');
     } else {
       // 3. No encontrado en ningún lado → entrada manual
       setExternalInfo({ barcode: code.trim(), name: '', brand: null, quantity: null, unitType: null });
-      setScanNetContent('');
+      setNetQty(''); setNetUnit('');
       setScanMode('manual');
     }
     setScanQty(1);
@@ -215,7 +213,7 @@ export default function RepartoPage() {
     setScanPrice('');
     setScanLocalPrice('');
     setScanManualName('');
-    setScanNetContent('');
+    setNetQty(''); setNetUnit('');
     setTimeout(() => barcodeRef.current?.focus(), 100);
   }
 
@@ -234,7 +232,7 @@ export default function RepartoPage() {
     }
 
     // Guardar net_content si cambió
-    const nc = scanNetContent.trim() || null;
+    const nc = netQty.trim() ? `${netQty.trim()} ${netUnit}`.trim() : null;
     if (nc !== (scannedProduct.net_content ?? null)) {
       await supabase
         .from('products')
@@ -257,7 +255,7 @@ export default function RepartoPage() {
     const name  = scanMode === 'manual' ? scanManualName.trim() : (externalInfo?.name ?? '');
     if (!externalInfo?.barcode || !name || isNaN(price) || price <= 0 || scanQty < 1) return;
 
-    const netContent = scanNetContent.trim() || null;
+    const netContent = netQty.trim() ? `${netQty.trim()} ${netUnit}`.trim() : null;
 
     setCreatingProduct(true);
     setScanError(null);
@@ -660,11 +658,12 @@ export default function RepartoPage() {
             <p className="font-bold text-primary-900">{scannedProduct.name}</p>
             {scannedProduct.brand && <p className="text-xs text-primary-500">{scannedProduct.brand}</p>}
             <div className="mt-2 mb-3 space-y-2">
-              <KeyboardInput
+              <ContentInput
                 label="Contenido del envase"
-                value={scanNetContent}
-                onChange={setScanNetContent}
-                placeholder="Ej: 500 g, 1 L, 6 x 330 ml"
+                qty={netQty}
+                unit={netUnit}
+                onQtyChange={setNetQty}
+                onUnitChange={setNetUnit}
                 labelClass="text-xs font-medium text-primary-600"
                 borderClass="border-primary-200"
               />
@@ -714,11 +713,12 @@ export default function RepartoPage() {
                 labelClass="text-xs text-blue-600"
                 borderClass="border-blue-200"
               />
-              <KeyboardInput
+              <ContentInput
                 label="Contenido del envase"
-                value={scanNetContent}
-                onChange={setScanNetContent}
-                placeholder="Ej: 500 g, 1 L, 6 x 330 ml"
+                qty={netQty}
+                unit={netUnit}
+                onQtyChange={setNetQty}
+                onUnitChange={setNetUnit}
                 labelClass="text-xs text-blue-600"
                 borderClass="border-blue-200"
               />
@@ -770,11 +770,12 @@ export default function RepartoPage() {
                 labelClass="text-xs text-amber-700"
                 borderClass="border-amber-200"
               />
-              <KeyboardInput
+              <ContentInput
                 label="Contenido del envase (opcional)"
-                value={scanNetContent}
-                onChange={setScanNetContent}
-                placeholder="Ej: 2 L, 500 g, 6 x 330 ml"
+                qty={netQty}
+                unit={netUnit}
+                onQtyChange={setNetQty}
+                onUnitChange={setNetUnit}
                 labelClass="text-xs text-amber-700"
                 borderClass="border-amber-200"
               />
