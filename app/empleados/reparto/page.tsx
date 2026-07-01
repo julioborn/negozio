@@ -56,9 +56,10 @@ function payLabel(m: DeliveryPaymentMethod | null): string {
 function parseNetContent(s: string | null): { qty: string; unit: string } {
   if (!s) return { qty: '', unit: '' };
   const m = s.trim().match(/^([\d.,]+)\s*([a-zA-Z]+)/);
-  if (!m || !m[1] || !m[2]) return { qty: '', unit: '' };
-  const qty = m[1].replace(',', '.');
-  const raw = m[2].toLowerCase();
+  const [, rawQty, rawUnit] = m ?? [];
+  if (!rawQty || !rawUnit) return { qty: '', unit: '' };
+  const qty = rawQty.replace(',', '.');
+  const raw = rawUnit.toLowerCase();
   const MAP: Record<string, string> = {
     g: 'g', gr: 'g', gramo: 'g', gramos: 'g', gram: 'g', grams: 'g',
     kg: 'kg', kilo: 'kg', kilos: 'kg',
@@ -69,7 +70,7 @@ function parseNetContent(s: string | null): { qty: string; unit: string } {
     cc: 'cc',
     un: 'un', unidad: 'un', unidades: 'un', unit: 'un', units: 'un',
   };
-  return { qty, unit: MAP[raw] ?? m[2] };
+  return { qty, unit: MAP[raw] ?? rawUnit };
 }
 
 // ─── QtyControl — +/- con hold-repeat y botón Agregar abajo ──
