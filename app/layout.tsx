@@ -30,9 +30,9 @@ export const metadata: Metadata = {
     title: 'Negozio',
   },
   icons: {
-    icon:     '/logos/negozio-icon-principal.png',
-    apple:    '/logos/negozio-icon-principal.png',
-    shortcut: '/logos/negozio-icon-principal.png',
+    icon:     '/logos/negozio-icon.png',
+    apple:    '/logos/negozio-icon.png',
+    shortcut: '/logos/negozio-icon.png',
   },
 };
 
