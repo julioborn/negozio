@@ -9,9 +9,13 @@ interface Props {
 }
 
 export default function CameraScanner({ onScan, onClose }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef  = useRef<HTMLVideoElement>(null);
+  // Ref para onScan — evita que el effect se reinicie en cada render
+  const onScanRef = useRef(onScan);
+  useEffect(() => { onScanRef.current = onScan; });
+
   const [error, setError] = useState<string | null>(null);
-  const [hint, setHint]   = useState('Iniciando cámara…');
+  const [hint,  setHint]  = useState('Iniciando cámara…');
 
   useEffect(() => {
     let stopped = false;
@@ -21,47 +25,39 @@ export default function CameraScanner({ onScan, onClose }: Props) {
       try {
         const { BrowserMultiFormatReader } = await import('@zxing/browser');
         if (stopped) return;
+
         const reader = new BrowserMultiFormatReader();
-
-        const devices = await BrowserMultiFormatReader.listVideoInputDevices();
-        if (!devices.length) { setError('No se encontró cámara disponible'); return; }
-
-        const back = devices.find(d =>
-          /back|environment|trasera|rear/i.test(d.label)
-        ) ?? devices[devices.length - 1];
-
         setHint('Apuntá al código de barras');
 
-        const controls = await reader.decodeFromVideoDevice(
-          back?.deviceId ?? undefined,
+        // decodeFromConstraints funciona en iOS — no depende de deviceId
+        const controls = await reader.decodeFromConstraints(
+          { video: { facingMode: { ideal: 'environment' } } },
           videoRef.current!,
           (result) => {
-            if (stopped) return;
-            if (result) {
-              stopped = true;
-              onScan(result.getText());
-            }
+            if (stopped || !result) return;
+            stopped = true;
+            onScanRef.current(result.getText());
           }
         );
+
         stopFn = () => controls.stop();
         if (stopped) controls.stop();
       } catch (e: unknown) {
-        if (!stopped) {
-          const msg = e instanceof Error ? e.message : String(e);
-          setError(msg.includes('Permission') || msg.includes('NotAllowed')
-            ? 'Permiso de cámara denegado. Habilitalo en Ajustes.'
-            : 'No se pudo acceder a la cámara.');
-        }
+        if (stopped) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(
+          msg.includes('ermission') || msg.includes('NotAllowed') || msg.includes('Denied')
+            ? 'Permiso de cámara denegado. Habilitalo en Ajustes > Safari.'
+            : 'No se pudo acceder a la cámara.'
+        );
       }
     }
 
     start();
 
-    return () => {
-      stopped = true;
-      stopFn?.();
-    };
-  }, [onScan]);
+    // El effect corre una sola vez — onScan llega por ref
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[9999] flex flex-col bg-black">
@@ -99,14 +95,17 @@ export default function CameraScanner({ onScan, onClose }: Props) {
               muted
             />
 
-            {/* Mira de escaneo */}
+            {/* Mira */}
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              {/* Sombra lateral */}
-              <div className="absolute inset-0 bg-black/40" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 0, 12% 25%, 88% 25%, 88% 75%, 12% 75%, 12% 25%)' }} />
-
-              {/* Rectángulo central */}
+              <div
+                className="absolute inset-0 bg-black/50"
+                style={{
+                  clipPath:
+                    'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%, ' +
+                    '12% 25%, 12% 75%, 88% 75%, 88% 25%, 12% 25%)',
+                }}
+              />
               <div className="relative h-44 w-72 rounded-xl">
-                {/* Esquinas */}
                 {[
                   'top-0 left-0 border-t-4 border-l-4 rounded-tl-xl',
                   'top-0 right-0 border-t-4 border-r-4 rounded-tr-xl',
@@ -115,10 +114,8 @@ export default function CameraScanner({ onScan, onClose }: Props) {
                 ].map((cls, i) => (
                   <span key={i} className={`absolute h-6 w-6 border-primary-400 ${cls}`} />
                 ))}
-                {/* Línea de escaneo animada */}
                 <span className="absolute inset-x-4 h-0.5 rounded-full bg-primary-400 shadow-[0_0_8px_2px_rgba(99,102,241,0.6)] animate-[scan_2s_ease-in-out_infinite]" />
               </div>
-
               <p className="mt-4 text-sm text-white/70">{hint}</p>
             </div>
           </>
