@@ -41,6 +41,12 @@ input, select, textarea {
   50%       { opacity: 0; }
 }
 
+/* ── Línea de escaneo (CameraScanner) ───────────────────────── */
+@keyframes scan {
+  0%, 100% { top: 10%;  }
+  50%       { top: 85%; }
+}
+
 /* ── Animación del loader ────────────────────────────────────── */
 @keyframes slide {
   0%   { transform: translateX(-100%); }

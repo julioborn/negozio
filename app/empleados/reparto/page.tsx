@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  AlertTriangle, ArrowLeft, Banknote, CheckCircle2, ChevronRight,
+  AlertTriangle, ArrowLeft, Banknote, Camera, CheckCircle2, ChevronRight,
   Clock, CreditCard, History, Loader2, MapPin, Minus, Package,
   Plus, Search, ShoppingCart, Truck, X,
 } from 'lucide-react';
@@ -13,6 +13,8 @@ import { useCustomers } from '@/hooks/useCustomers';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
 import { ContentInput, KeyboardInput, NumPad } from '@/components/ui/SoftKeyboard';
+import dynamic from 'next/dynamic';
+const CameraScanner = dynamic(() => import('@/components/ui/CameraScanner'), { ssr: false });
 import { lookupBarcode } from '@/lib/utils/barcode-lookup';
 import type {
   Customer, Delivery, DeliveryPaymentMethod,
@@ -188,6 +190,7 @@ export default function RepartoPage() {
   const [creating,         setCreating]         = useState(false);
   const [creatingProduct,  setCreatingProduct]  = useState(false);
   const [scannerFocused,   setScannerFocused]   = useState(false);
+  const [cameraOpen,       setCameraOpen]       = useState(false);
   const barcodeRef     = useRef<HTMLInputElement>(null);
   // GPS tracking
   const gpsWatchRef    = useRef<number | null>(null);
@@ -731,57 +734,84 @@ export default function RepartoPage() {
               {scannerFocused ? 'Escáner activo — listo para leer' : 'Tocá aquí para activar el escáner'}
             </button>
           )}
-          <div className="relative">
-            <input
-              ref={barcodeRef}
-              autoFocus
+
+          {/* Input pistola + botón cámara */}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                ref={barcodeRef}
+                autoFocus
+                disabled={scanMode !== 'idle' || scanning}
+                value={barcodeInput}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val.includes('\n') || val.includes('\r')) {
+                    const clean = val.replace(/[\r\n]/g, '').trim();
+                    if (clean) handleBarcodeScan(clean);
+                    return;
+                  }
+                  setBarcodeInput(val);
+                }}
+                onKeyDown={e => {
+                  if ((e.key === 'Enter' || e.key === 'Tab') && scanMode === 'idle') {
+                    e.preventDefault();
+                    const val = (e.target as HTMLInputElement).value.trim();
+                    if (val) handleBarcodeScan(val);
+                  }
+                }}
+                onFocus={() => setScannerFocused(true)}
+                onBlur={() => {
+                  setScannerFocused(false);
+                  if (scanMode === 'idle' && !scanning) {
+                    setTimeout(() => barcodeRef.current?.focus(), 150);
+                  }
+                }}
+                placeholder="Escaneá con la pistola lectora…"
+                className="block w-full rounded-2xl border-2 bg-white
+                           px-4 py-4 text-base focus:outline-none
+                           disabled:bg-slate-50 disabled:text-slate-400
+                           border-primary-300 focus:border-primary-700"
+              />
+              {scanning && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary-700" />
+                </div>
+              )}
+            </div>
+
+            {/* Botón cámara */}
+            <button
               disabled={scanMode !== 'idle' || scanning}
-              value={barcodeInput}
-              onChange={e => {
-                const val = e.target.value;
-                // Algunos scanners mandan \n o \r dentro del value en lugar de Enter key
-                if (val.includes('\n') || val.includes('\r')) {
-                  const clean = val.replace(/[\r\n]/g, '').trim();
-                  if (clean) handleBarcodeScan(clean);
-                  return;
-                }
-                setBarcodeInput(val);
-              }}
-              onKeyDown={e => {
-                // Enter y Tab son los terminadores más comunes de scanners
-                if ((e.key === 'Enter' || e.key === 'Tab') && scanMode === 'idle') {
-                  e.preventDefault();
-                  // Leer directo del DOM para evitar el closure stale del estado
-                  const val = (e.target as HTMLInputElement).value.trim();
-                  if (val) handleBarcodeScan(val);
-                }
-              }}
-              onFocus={() => setScannerFocused(true)}
-              onBlur={() => {
-                setScannerFocused(false);
-                // Auto-refocus si no hay diálogo abierto
-                if (scanMode === 'idle' && !scanning) {
-                  setTimeout(() => barcodeRef.current?.focus(), 150);
-                }
-              }}
-              placeholder="Escaneá con la pistola lectora…"
-              className="block w-full rounded-2xl border-2 bg-white
-                         px-4 py-4 text-base focus:outline-none
-                         disabled:bg-slate-50 disabled:text-slate-400
-                         border-primary-300 focus:border-primary-700"
-            />
-            {scanning && (
-              <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                <Loader2 className="h-5 w-5 animate-spin text-primary-700" />
-              </div>
-            )}
+              onClick={() => setCameraOpen(true)}
+              className="flex h-[58px] w-[58px] shrink-0 items-center justify-center
+                         rounded-2xl bg-primary-700 text-white shadow-sm
+                         active:bg-primary-800 disabled:opacity-40"
+              title="Escanear con cámara"
+            >
+              <Camera className="h-6 w-6" />
+            </button>
           </div>
+
           {scanError && (
             <p className="mt-2 flex items-center gap-1.5 text-sm text-red-600">
               <AlertTriangle className="h-4 w-4 shrink-0" />{scanError}
             </p>
           )}
         </div>
+
+        {/* Escáner de cámara */}
+        {cameraOpen && (
+          <CameraScanner
+            onScan={code => {
+              setCameraOpen(false);
+              handleBarcodeScan(code);
+            }}
+            onClose={() => {
+              setCameraOpen(false);
+              setTimeout(() => barcodeRef.current?.focus(), 150);
+            }}
+          />
+        )}
 
         {/* ── Modo LOCAL: producto ya estaba en el sistema ── */}
         {scanMode === 'local' && scannedProduct && (
