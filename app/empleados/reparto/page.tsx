@@ -105,13 +105,14 @@ function QtyControl({
   }
 
   return (
-    <div className="mt-4">
+    <div className="mt-4 select-none">
       <div className="flex items-center justify-center gap-6">
         <button
           type="button"
           onPointerDown={() => startHold(-1)}
           onPointerUp={stopHold}
           onPointerLeave={stopHold}
+          onContextMenu={e => e.preventDefault()}
           className="flex h-16 w-16 items-center justify-center rounded-2xl border-2
                      border-slate-200 bg-white text-slate-700 active:bg-slate-100 select-none"
         >
@@ -125,6 +126,7 @@ function QtyControl({
           onPointerDown={() => startHold(1)}
           onPointerUp={stopHold}
           onPointerLeave={stopHold}
+          onContextMenu={e => e.preventDefault()}
           className="flex h-16 w-16 items-center justify-center rounded-2xl
                      bg-primary-700 text-white active:bg-primary-800 select-none"
         >
