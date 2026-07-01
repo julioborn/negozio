@@ -209,9 +209,10 @@ export default function RepartoPage() {
   const [historialLoading, setHistorialLoading] = useState(false);
   const [markingPaid,      setMarkingPaid]      = useState<string | null>(null);
 
-  // ── GPS tracking mientras el reparto está activo ─────────────
+  // ── GPS tracking — corre durante todo el reparto activo ───────
+  // No depende de `view` para que no se corte al navegar a sub-vistas
   useEffect(() => {
-    if (!activeTsId || view !== 'active' || !navigator.geolocation) {
+    if (!activeTsId || !navigator.geolocation) {
       if (gpsWatchRef.current != null) {
         navigator.geolocation.clearWatch(gpsWatchRef.current);
         gpsWatchRef.current = null;
@@ -224,7 +225,7 @@ export default function RepartoPage() {
       err => console.warn('GPS:', err),
       { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
     );
-    // Guardar waypoint cada 30 segundos
+    // Guardar waypoint de ruta cada 30 segundos
     gpsIntervalRef.current = setInterval(async () => {
       if (!currentPosRef.current || !activeTsId) return;
       await supabase.from('reparto_waypoints').insert({
@@ -238,7 +239,7 @@ export default function RepartoPage() {
       if (gpsWatchRef.current != null) { navigator.geolocation.clearWatch(gpsWatchRef.current); gpsWatchRef.current = null; }
       if (gpsIntervalRef.current) { clearInterval(gpsIntervalRef.current); gpsIntervalRef.current = null; }
     };
-  }, [activeTsId, view, supabase]);
+  }, [activeTsId, supabase]);
 
   // ── Helpers ─────────────────────────────────────────────────
   const fetchTsItems = useCallback(async (tsId: string): Promise<TravelStockItem[]> => {

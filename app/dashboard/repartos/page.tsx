@@ -78,7 +78,7 @@ export default function RepartosPage() {
       setLoading(true);
       const { data } = await supabase
         .from('travel_stocks')
-        .select('*, assigned_profile:profiles!travel_stocks_assigned_to_fkey(*)')
+        .select('*, assigned_profile:assigned_to(id, full_name, email, role)')
         .eq('establishment_id', estId)
         .order('created_at', { ascending: false });
 
