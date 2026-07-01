@@ -4,16 +4,17 @@ import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
-  ChevronDown, ChevronUp, Clock, DollarSign,
-  Loader2, MapPin, Package, Truck, Users,
+  Banknote, Check, ChevronDown, ChevronUp, Clock,
+  CreditCard, DollarSign, Loader2, MapPin, Package,
+  Pencil, Truck, Users, X,
 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
+import { NumPad } from '@/components/ui/SoftKeyboard';
 import type { Customer, Delivery, DeliveryItem, Profile, TravelStock, TravelStockItem } from '@/types/database';
 
-// Leaflet no soporta SSR — importar dinámicamente
 const RepartoMap = dynamic(() => import('@/components/ui/RepartoMap'), {
   ssr: false,
   loading: () => (
@@ -23,7 +24,7 @@ const RepartoMap = dynamic(() => import('@/components/ui/RepartoMap'), {
   ),
 });
 
-// ─── Tipos extendidos ─────────────────────────────────────────
+// ─── Tipos ────────────────────────────────────────────────────
 interface Waypoint {
   lat: number; lng: number; recorded_at: string;
   type?: 'route' | 'delivery';
@@ -31,9 +32,11 @@ interface Waypoint {
   total_amount?: number | null;
 }
 
-interface RepartoDetail extends TravelStock {
-  assigned_profile?: Profile;
-  items:    TravelStockItem[];
+type ProfileMin = Pick<Profile, 'id' | 'full_name' | 'email' | 'role'>;
+
+interface RepartoDetail extends Omit<TravelStock, 'assigned_profile'> {
+  assigned_profile?: ProfileMin;
+  items:      TravelStockItem[];
   deliveries: (Delivery & { customer: Customer; items: DeliveryItem[] })[];
   waypoints:  Waypoint[];
 }
@@ -47,9 +50,11 @@ const STATUS_COLORS: Record<string, string> = {
   completed: 'bg-blue-100 text-blue-700',
   cancelled: 'bg-slate-100 text-slate-500',
 };
-const PAY_LABELS: Record<string, string> = {
-  cash: 'Efectivo', transfer: 'Transferencia',
-  pending_7: 'Pendiente 7d', pending_15: 'Pendiente 15d',
+const PAY_CFG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  cash:       { label: 'Efectivo',        color: 'text-green-700 bg-green-50 border-green-200', icon: Banknote   },
+  transfer:   { label: 'Transferencia',   color: 'text-blue-700 bg-blue-50 border-blue-200',     icon: CreditCard },
+  pending_7:  { label: 'Pendiente 7d',    color: 'text-amber-700 bg-amber-50 border-amber-200',  icon: Clock      },
+  pending_15: { label: 'Pendiente 15d',   color: 'text-orange-700 bg-orange-50 border-orange-200', icon: Clock   },
 };
 
 function fDate(s: string) {
@@ -59,18 +64,72 @@ function fDate(s: string) {
   });
 }
 
+function payLabel(m: string | null): string {
+  return m ? (PAY_CFG[m]?.label ?? m) : 'Sin método';
+}
+
+// ─── Resumen de ventas por método ─────────────────────────────
+function PaySummary({ deliveries }: { deliveries: RepartoDetail['deliveries'] }) {
+  const totals: Record<string, number> = {};
+  for (const d of deliveries) {
+    const k = d.payment_method ?? 'pending_7';
+    totals[k] = (totals[k] ?? 0) + d.total_amount;
+  }
+  const cobrado   = (totals.cash ?? 0) + (totals.transfer ?? 0);
+  const pendiente = (totals.pending_7 ?? 0) + (totals.pending_15 ?? 0);
+  const total     = cobrado + pendiente;
+
+  return (
+    <div className="rounded-xl bg-slate-50 px-4 py-3 space-y-2">
+      {/* Barra de progreso cobrado/pendiente */}
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-bold text-slate-900">{formatCurrency(total)}</span>
+        <span className="text-xs text-slate-500">{deliveries.length} entrega{deliveries.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+        <div
+          className="h-full rounded-full bg-green-500 transition-all"
+          style={{ width: total > 0 ? `${(cobrado / total) * 100}%` : '0%' }}
+        />
+      </div>
+      <div className="flex gap-4 text-xs">
+        <span className="font-semibold text-green-700">Cobrado {formatCurrency(cobrado)}</span>
+        {pendiente > 0 && <span className="font-semibold text-amber-600">Pendiente {formatCurrency(pendiente)}</span>}
+      </div>
+      {/* Desglose por método */}
+      <div className="flex flex-wrap gap-1.5 pt-1">
+        {Object.entries(totals).map(([method, amt]) => {
+          const cfg = PAY_CFG[method];
+          if (!cfg) return null;
+          const Icon = cfg.icon;
+          return (
+            <span key={method} className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cfg.color}`}>
+              <Icon className="h-3 w-3" />
+              {cfg.label} {formatCurrency(amt)}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────
 export default function RepartosPage() {
-  const { user }        = useAuth();
-  const estId           = user?.establishment_id ?? null;
-  const supabase        = useMemo(() => createClient(), []);
+  const { user }   = useAuth();
+  const estId      = user?.establishment_id ?? null;
+  const supabase   = useMemo(() => createClient(), []);
 
-  const [repartos, setRepartos]     = useState<RepartoDetail[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [expanded, setExpanded]     = useState<string | null>(null);
+  const [repartos,      setRepartos]      = useState<RepartoDetail[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [expanded,      setExpanded]      = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
 
-  // ── Cargar lista de repartos ──────────────────────────────
+  // Edición de precio
+  const [editPrice, setEditPrice]   = useState<{ itemId: string; epId: string | null; value: string } | null>(null);
+  const [savingPrice, setSavingPrice] = useState(false);
+
+  // ── Lista de repartos ─────────────────────────────────────
   useEffect(() => {
     if (!estId) return;
     let cancelled = false;
@@ -81,13 +140,9 @@ export default function RepartosPage() {
         .select('*, assigned_profile:assigned_to(id, full_name, email, role)')
         .eq('establishment_id', estId)
         .order('created_at', { ascending: false });
-
       if (cancelled) return;
-      setRepartos((data ?? []).map((ts: TravelStock & { assigned_profile?: Profile }) => ({
-        ...ts,
-        items:      [],
-        deliveries: [],
-        waypoints:  [],
+      setRepartos((data ?? []).map((ts: TravelStock & { assigned_profile?: Pick<Profile, 'id' | 'full_name' | 'email' | 'role'> }) => ({
+        ...ts, items: [], deliveries: [], waypoints: [],
       })));
       setLoading(false);
     }
@@ -95,32 +150,19 @@ export default function RepartosPage() {
     return () => { cancelled = true; };
   }, [estId, supabase]);
 
-  // ── Cargar detalle de un reparto al expandir ───────────────
+  // ── Detalle al expandir ───────────────────────────────────
   const loadDetail = useCallback(async (tsId: string) => {
     setDetailLoading(tsId);
     const [itemsRes, deliveriesRes, waypointsRes] = await Promise.all([
-      supabase
-        .from('travel_stock_items')
-        .select('*')
-        .eq('travel_stock_id', tsId)
-        .order('created_at'),
-      supabase
-        .from('deliveries')
-        .select('*, customer:customers(*), items:delivery_items(*)')
-        .eq('travel_stock_id', tsId)
-        .order('created_at'),
-      supabase
-        .from('reparto_waypoints')
-        .select('lat, lng, recorded_at, type, customer_name, total_amount')
-        .eq('travel_stock_id', tsId)
-        .order('recorded_at'),
+      supabase.from('travel_stock_items').select('*').eq('travel_stock_id', tsId).order('created_at'),
+      supabase.from('deliveries').select('*, customer:customers(*), items:delivery_items(*)').eq('travel_stock_id', tsId).order('created_at'),
+      supabase.from('reparto_waypoints').select('lat,lng,recorded_at,type,customer_name,total_amount').eq('travel_stock_id', tsId).order('recorded_at'),
     ]);
-
     setRepartos(prev => prev.map(r => r.id === tsId ? {
       ...r,
-      items:      (itemsRes.data ?? []) as TravelStockItem[],
+      items:      (itemsRes.data ?? [])      as TravelStockItem[],
       deliveries: (deliveriesRes.data ?? []) as (Delivery & { customer: Customer; items: DeliveryItem[] })[],
-      waypoints:  (waypointsRes.data ?? []) as Waypoint[],
+      waypoints:  (waypointsRes.data ?? [])  as Waypoint[],
     } : r));
     setDetailLoading(null);
   }, [supabase]);
@@ -128,9 +170,46 @@ export default function RepartosPage() {
   function toggle(tsId: string) {
     if (expanded === tsId) { setExpanded(null); return; }
     setExpanded(tsId);
+    setEditPrice(null);
     const rep = repartos.find(r => r.id === tsId);
     if (rep && rep.items.length === 0) loadDetail(tsId);
   }
+
+  // ── Guardar precio ────────────────────────────────────────
+  async function savePrice() {
+    if (!editPrice) return;
+    const price = parseFloat(editPrice.value.replace(',', '.'));
+    if (isNaN(price) || price <= 0) return;
+    setSavingPrice(true);
+    await supabase
+      .from('travel_stock_items')
+      .update({ unit_price: price })
+      .eq('id', editPrice.itemId);
+    if (editPrice.epId) {
+      await supabase
+        .from('establishment_products')
+        .update({ price })
+        .eq('id', editPrice.epId);
+    }
+    setRepartos(prev => prev.map(r => ({
+      ...r,
+      items: r.items.map(it => it.id === editPrice.itemId ? { ...it, unit_price: price } : it),
+    })));
+    setSavingPrice(false);
+    setEditPrice(null);
+  }
+
+  // ── Estadísticas globales ─────────────────────────────────
+  const globalStats = useMemo(() => {
+    let totalVentas = 0, totalPendiente = 0;
+    for (const r of repartos) {
+      for (const d of r.deliveries) {
+        totalVentas += d.total_amount;
+        if (d.payment_status === 'pending') totalPendiente += d.total_amount;
+      }
+    }
+    return { totalVentas, totalPendiente, count: repartos.length };
+  }, [repartos]);
 
   if (loading) {
     return (
@@ -141,14 +220,34 @@ export default function RepartosPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+
+      {/* Encabezado */}
       <div className="flex items-center gap-3">
         <Truck className="h-6 w-6 text-primary-700" />
         <h1 className="text-xl font-bold text-slate-900">Historial de repartos</h1>
         <span className="rounded-full bg-primary-100 px-2.5 py-0.5 text-xs font-semibold text-primary-700">
-          {repartos.length}
+          {globalStats.count}
         </span>
       </div>
+
+      {/* Stats globales (solo si hay repartos con detalle cargado) */}
+      {globalStats.totalVentas > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-medium text-slate-500">Total vendido</p>
+            <p className="mt-1 text-xl font-black text-slate-900">{formatCurrency(globalStats.totalVentas)}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-medium text-slate-500">Cobrado</p>
+            <p className="mt-1 text-xl font-black text-green-700">{formatCurrency(globalStats.totalVentas - globalStats.totalPendiente)}</p>
+          </div>
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 col-span-2 sm:col-span-1">
+            <p className="text-xs font-medium text-amber-600">Pendiente de cobro</p>
+            <p className="mt-1 text-xl font-black text-amber-700">{formatCurrency(globalStats.totalPendiente)}</p>
+          </div>
+        </div>
+      )}
 
       {repartos.length === 0 && (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">
@@ -157,26 +256,29 @@ export default function RepartosPage() {
         </div>
       )}
 
+      {/* Lista */}
       <div className="space-y-3">
         {repartos.map(rep => {
           const isOpen      = expanded === rep.id;
           const isLoadingDt = detailLoading === rep.id;
           const totalVendido = rep.deliveries.reduce((s, d) => s + d.total_amount, 0);
+          const pendiente    = rep.deliveries.filter(d => d.payment_status === 'pending').reduce((s, d) => s + d.total_amount, 0);
 
           return (
-            <div key={rep.id}
-              className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div key={rep.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 
-              {/* ── Cabecera del reparto ── */}
+              {/* Cabecera */}
               <button
                 onClick={() => toggle(rep.id)}
                 className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-slate-50 transition-colors"
               >
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl
-                  ${rep.status === 'active' ? 'bg-green-100' : rep.status === 'completed' ? 'bg-blue-100' : 'bg-slate-100'}`}>
-                  <Truck className={`h-5 w-5 ${rep.status === 'active' ? 'text-green-600' : rep.status === 'completed' ? 'text-blue-600' : 'text-slate-400'}`} />
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                  rep.status === 'active' ? 'bg-green-100' : rep.status === 'completed' ? 'bg-blue-100' : 'bg-slate-100'
+                }`}>
+                  <Truck className={`h-5 w-5 ${
+                    rep.status === 'active' ? 'text-green-600' : rep.status === 'completed' ? 'text-blue-600' : 'text-slate-400'
+                  }`} />
                 </div>
-
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-slate-900">
@@ -187,28 +289,28 @@ export default function RepartosPage() {
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-slate-400">{fDate(rep.created_at)}</p>
-                </div>
-
-                <div className="hidden shrink-0 flex-col items-end sm:flex">
-                  {isOpen && rep.deliveries.length > 0 && (
-                    <p className="text-sm font-bold text-slate-900">{formatCurrency(totalVendido)}</p>
+                  {rep.deliveries.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
+                      <span className="text-slate-500">{rep.deliveries.length} entregas</span>
+                      <span className="font-semibold text-slate-700">{formatCurrency(totalVendido)}</span>
+                      {pendiente > 0 && (
+                        <span className="font-semibold text-amber-600">· {formatCurrency(pendiente)} pend.</span>
+                      )}
+                    </div>
                   )}
-                  <p className="text-xs text-slate-400">{rep.name}</p>
                 </div>
-
                 <div className="shrink-0 text-slate-400">
                   {isLoadingDt
                     ? <Loader2 className="h-5 w-5 animate-spin" />
-                    : isOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />
-                  }
+                    : isOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                 </div>
               </button>
 
-              {/* ── Detalle expandido ── */}
+              {/* Detalle */}
               {isOpen && !isLoadingDt && (
                 <div className="border-t border-slate-100 px-5 pb-5 pt-4 space-y-5">
 
-                  {/* Productos cargados */}
+                  {/* ── Productos cargados con precios editables ── */}
                   {rep.items.length > 0 && (
                     <div>
                       <div className="mb-2 flex items-center gap-2">
@@ -218,83 +320,141 @@ export default function RepartosPage() {
                         </p>
                       </div>
                       <div className="overflow-hidden rounded-xl border border-slate-100">
-                        {rep.items.map((item, i) => (
-                          <div key={item.id}
-                            className={`flex items-center justify-between px-4 py-2.5 text-sm ${i > 0 ? 'border-t border-slate-50' : ''}`}>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate font-medium text-slate-800">{item.product_name}</p>
-                              <p className="text-xs text-slate-400">{formatCurrency(item.unit_price)} c/u</p>
+                        {rep.items.map((item, i) => {
+                          const isEditing = editPrice?.itemId === item.id;
+                          return (
+                            <div key={item.id}
+                              className={`px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}>
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium text-slate-800">{item.product_name}</p>
+                                  <div className="mt-0.5 flex items-center gap-2">
+                                    {isEditing ? (
+                                      <span className="text-xs font-bold text-primary-700">
+                                        ${editPrice.value || '0'}
+                                      </span>
+                                    ) : (
+                                      <button
+                                        onClick={() => setEditPrice({
+                                          itemId: item.id,
+                                          epId:   item.establishment_product_id,
+                                          value:  String(item.unit_price),
+                                        })}
+                                        className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-primary-700 transition-colors"
+                                      >
+                                        {formatCurrency(item.unit_price)} c/u
+                                        <Pencil className="h-3 w-3 opacity-50" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <p className="text-sm font-bold text-slate-900">
+                                    {item.quantity_sold} <span className="font-normal text-slate-400">/ {item.quantity_assigned}</span>
+                                  </p>
+                                  <p className="text-[10px] text-slate-400">vendido / cargado</p>
+                                </div>
+                              </div>
+
+                              {/* NumPad inline para editar precio */}
+                              {isEditing && (
+                                <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 p-3">
+                                  <div className="mb-2 flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-primary-700">Nuevo precio</span>
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={savePrice}
+                                        disabled={savingPrice || !editPrice.value || parseFloat(editPrice.value) <= 0}
+                                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-700 text-white disabled:opacity-50"
+                                      >
+                                        {savingPrice ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                      </button>
+                                      <button
+                                        onClick={() => setEditPrice(null)}
+                                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500"
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <NumPad
+                                    value={editPrice.value}
+                                    onChange={v => setEditPrice(prev => prev ? { ...prev, value: v } : prev)}
+                                  />
+                                </div>
+                              )}
                             </div>
-                            <div className="ml-4 text-right">
-                              <p className="font-semibold text-slate-900">
-                                {item.quantity_sold} / {item.quantity_assigned}
-                              </p>
-                              <p className="text-[10px] text-slate-400">vendido / cargado</p>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
-                  {/* Entregas */}
+                  {/* ── Ventas del reparto ── */}
                   {rep.deliveries.length > 0 && (
                     <div>
-                      <div className="mb-2 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4 text-slate-400" />
-                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                            Entregas ({rep.deliveries.length})
-                          </p>
-                        </div>
-                        <p className="text-sm font-bold text-slate-900">
-                          Total: {formatCurrency(totalVendido)}
+                      <div className="mb-2 flex items-center gap-2">
+                        <Users className="h-4 w-4 text-slate-400" />
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Ventas del reparto ({rep.deliveries.length})
                         </p>
                       </div>
-                      <div className="overflow-hidden rounded-xl border border-slate-100">
-                        {rep.deliveries.map((d, i) => (
-                          <div key={d.id}
-                            className={`px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}>
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-semibold text-slate-900">{d.customer.name}</p>
-                                {d.customer.barrio && (
-                                  <p className="flex items-center gap-1 text-xs text-slate-400">
-                                    <MapPin className="h-3 w-3" />{d.customer.barrio}
-                                  </p>
-                                )}
-                                {/* Items de la entrega */}
-                                {d.items && d.items.length > 0 && (
-                                  <div className="mt-1 space-y-0.5">
-                                    {d.items.map(it => (
-                                      <p key={it.id} className="text-xs text-slate-500">
-                                        {it.quantity}× {it.product_name} — {formatCurrency(it.subtotal)}
-                                      </p>
-                                    ))}
+
+                      {/* Resumen de cobros */}
+                      <PaySummary deliveries={rep.deliveries} />
+
+                      {/* Detalle por entrega */}
+                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-100">
+                        {rep.deliveries.map((d, i) => {
+                          const cfg = PAY_CFG[d.payment_method ?? ''];
+                          const Icon = cfg?.icon ?? DollarSign;
+                          return (
+                            <div key={d.id}
+                              className={`px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}>
+                              <div className="flex items-start gap-3">
+                                {/* Ícono de método */}
+                                <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${cfg?.color ?? 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                                  <Icon className="h-4 w-4" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <p className="font-semibold text-slate-900 truncate">{d.customer.name}</p>
+                                    <p className="shrink-0 font-bold text-slate-900">{formatCurrency(d.total_amount)}</p>
                                   </div>
-                                )}
-                              </div>
-                              <div className="shrink-0 text-right">
-                                <p className="font-bold text-slate-900">{formatCurrency(d.total_amount)}</p>
-                                <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${
-                                  d.payment_status === 'paid'
-                                    ? 'bg-green-100 text-green-700'
-                                    : 'bg-amber-100 text-amber-700'
-                                }`}>
-                                  {d.payment_method ? PAY_LABELS[d.payment_method] ?? d.payment_method : 'Pendiente'}
-                                </span>
-                                <p className="mt-0.5 text-[10px] text-slate-400">
-                                  <Clock className="inline h-3 w-3" /> {fDate(d.created_at)}
-                                </p>
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                                    {d.customer.barrio && (
+                                      <span className="flex items-center gap-0.5 text-[11px] text-slate-400">
+                                        <MapPin className="h-3 w-3" />{d.customer.barrio}
+                                      </span>
+                                    )}
+                                    <span className={`text-[11px] font-semibold ${
+                                      d.payment_status === 'paid' ? 'text-green-600' : 'text-amber-600'
+                                    }`}>
+                                      {payLabel(d.payment_method)}
+                                    </span>
+                                    <span className="text-[11px] text-slate-400">{fDate(d.created_at)}</span>
+                                  </div>
+                                  {/* Items de la entrega */}
+                                  {d.items && d.items.length > 0 && (
+                                    <div className="mt-1.5 space-y-0.5">
+                                      {d.items.map(it => (
+                                        <p key={it.id} className="text-xs text-slate-500">
+                                          {it.quantity}× {it.product_name}
+                                          <span className="ml-1 text-slate-400">— {formatCurrency(it.subtotal)}</span>
+                                        </p>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
 
-                  {/* Mapa */}
+                  {/* ── Mapa ── */}
                   {(() => {
                     const routeWps = rep.waypoints.filter(w => !w.type || w.type === 'route');
                     const delivWps = rep.waypoints
@@ -318,17 +478,16 @@ export default function RepartosPage() {
                             <RepartoMap waypoints={routeWps} deliveryPoints={delivWps} />
                           </div>
                         ) : (
-                          <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50">
-                            <MapPin className="h-8 w-8 text-slate-300" />
+                          <div className="flex h-32 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-slate-50">
+                            <MapPin className="h-7 w-7 text-slate-300" />
                             <p className="text-sm text-slate-400">Sin datos de ubicación</p>
-                            <p className="text-xs text-slate-300">El GPS se registrará en los próximos repartos</p>
+                            <p className="text-xs text-slate-300">Se registrará en los próximos repartos</p>
                           </div>
                         )}
                       </div>
                     );
                   })()}
 
-                  {/* Si no hay nada */}
                   {rep.items.length === 0 && rep.deliveries.length === 0 && (
                     <p className="text-center text-sm text-slate-400">Sin datos para este reparto</p>
                   )}
