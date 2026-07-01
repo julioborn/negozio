@@ -66,8 +66,7 @@ function SoftKeyboard({
               <button
                 key={key}
                 type="button"
-                onMouseDown={e => { e.preventDefault(); press(key); }}
-                onTouchStart={e => { e.preventDefault(); press(key); }}
+                onPointerDown={e => { e.preventDefault(); press(key); }}
                 className={[
                   'flex h-[43px] items-center justify-center rounded-[5px]',
                   'shadow-[0_1px_0_rgba(0,0,0,0.32)] active:opacity-60',
