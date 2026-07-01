@@ -15,28 +15,27 @@ export default function CameraScanner({ onScan, onClose }: Props) {
 
   useEffect(() => {
     let stopped = false;
-    let reader: import('@zxing/browser').BrowserMultiFormatReader | null = null;
+    let stopFn: (() => void) | null = null;
 
     async function start() {
       try {
         const { BrowserMultiFormatReader } = await import('@zxing/browser');
         if (stopped) return;
-        reader = new BrowserMultiFormatReader();
+        const reader = new BrowserMultiFormatReader();
 
         const devices = await BrowserMultiFormatReader.listVideoInputDevices();
         if (!devices.length) { setError('No se encontró cámara disponible'); return; }
 
-        // Prefiere cámara trasera
         const back = devices.find(d =>
           /back|environment|trasera|rear/i.test(d.label)
         ) ?? devices[devices.length - 1];
 
         setHint('Apuntá al código de barras');
 
-        await reader.decodeFromVideoDevice(
+        const controls = await reader.decodeFromVideoDevice(
           back?.deviceId ?? undefined,
           videoRef.current!,
-          (result, err) => {
+          (result) => {
             if (stopped) return;
             if (result) {
               stopped = true;
@@ -44,6 +43,8 @@ export default function CameraScanner({ onScan, onClose }: Props) {
             }
           }
         );
+        stopFn = () => controls.stop();
+        if (stopped) controls.stop();
       } catch (e: unknown) {
         if (!stopped) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -58,7 +59,7 @@ export default function CameraScanner({ onScan, onClose }: Props) {
 
     return () => {
       stopped = true;
-      reader?.reset();
+      stopFn?.();
     };
   }, [onScan]);
 
