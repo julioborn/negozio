@@ -72,6 +72,88 @@ function parseNetContent(s: string | null): { qty: string; unit: string } {
   return { qty, unit: MAP[raw] ?? m[2] };
 }
 
+// ─── QtyControl — +/- con hold-repeat y botón Agregar abajo ──
+function QtyControl({
+  value, onChange, onConfirm, onCancel,
+  confirmLabel, confirmDisabled = false, confirming = false,
+  confirmBg = 'bg-primary-700',
+}: {
+  value: number;
+  onChange: (updater: (prev: number) => number) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmLabel: string;
+  confirmDisabled?: boolean;
+  confirming?: boolean;
+  confirmBg?: string;
+}) {
+  const holdTimer    = useRef<ReturnType<typeof setTimeout>  | null>(null);
+  const holdInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function startHold(delta: number) {
+    onChange(prev => Math.max(1, prev + delta));
+    holdTimer.current = setTimeout(() => {
+      holdInterval.current = setInterval(() => {
+        onChange(prev => Math.max(1, prev + delta));
+      }, 80);
+    }, 350);
+  }
+
+  function stopHold() {
+    if (holdTimer.current)    clearTimeout(holdTimer.current);
+    if (holdInterval.current) clearInterval(holdInterval.current);
+  }
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-center gap-6">
+        <button
+          type="button"
+          onPointerDown={() => startHold(-1)}
+          onPointerUp={stopHold}
+          onPointerLeave={stopHold}
+          className="flex h-16 w-16 items-center justify-center rounded-2xl border-2
+                     border-slate-200 bg-white text-slate-700 active:bg-slate-100 select-none"
+        >
+          <Minus className="h-7 w-7" />
+        </button>
+        <span className="w-24 text-center text-6xl font-black tabular-nums text-slate-900">
+          {value}
+        </span>
+        <button
+          type="button"
+          onPointerDown={() => startHold(1)}
+          onPointerUp={stopHold}
+          onPointerLeave={stopHold}
+          className="flex h-16 w-16 items-center justify-center rounded-2xl
+                     bg-primary-700 text-white active:bg-primary-800 select-none"
+        >
+          <Plus className="h-7 w-7" />
+        </button>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={confirmDisabled || confirming}
+          className={`flex-1 rounded-xl ${confirmBg} py-3.5 text-sm font-bold text-white disabled:opacity-50`}
+        >
+          {confirming
+            ? <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+            : confirmLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-xl border border-slate-200 bg-white p-3.5 text-slate-400 hover:text-red-500"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────
 export default function RepartoPage() {
   const { user }         = useAuth();
@@ -675,29 +757,14 @@ export default function RepartoPage() {
                 <NumPad value={scanLocalPrice} onChange={setScanLocalPrice} />
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
-                  <Minus className="h-4 w-4" />
-                </button>
-                <span className="w-10 text-center text-lg font-black">{scanQty}</span>
-                <button onClick={() => setScanQty(q => q + 1)}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-              <button
-                onClick={confirmLocalItem}
-                disabled={!scanLocalPrice || parseFloat(scanLocalPrice) <= 0}
-                className="flex-1 rounded-xl bg-primary-700 py-2.5 text-sm font-bold text-white disabled:opacity-50">
-                Agregar ({scanQty})
-              </button>
-              <button onClick={cancelScanDialog}
-                className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-400 hover:text-red-500">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            <QtyControl
+              value={scanQty}
+              onChange={setScanQty}
+              onConfirm={confirmLocalItem}
+              onCancel={cancelScanDialog}
+              confirmLabel={`Agregar (${scanQty})`}
+              confirmDisabled={!scanLocalPrice || parseFloat(scanLocalPrice) <= 0}
+            />
           </div>
         )}
 
@@ -730,30 +797,15 @@ export default function RepartoPage() {
                 <NumPad value={scanPrice} onChange={setScanPrice} />
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
-                  <Minus className="h-4 w-4" />
-                </button>
-                <span className="w-10 text-center text-lg font-black">{scanQty}</span>
-                <button onClick={() => setScanQty(q => q + 1)}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-              <button
-                onClick={confirmNewProduct}
-                disabled={creatingProduct || !scanPrice || !externalInfo.name.trim()}
-                className="flex-1 rounded-xl bg-primary-700 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-              >
-                {creatingProduct ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : `Agregar (${scanQty})`}
-              </button>
-              <button onClick={cancelScanDialog}
-                className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-400 hover:text-red-500">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            <QtyControl
+              value={scanQty}
+              onChange={setScanQty}
+              onConfirm={confirmNewProduct}
+              onCancel={cancelScanDialog}
+              confirmLabel={`Agregar (${scanQty})`}
+              confirmDisabled={!scanPrice || !externalInfo.name.trim()}
+              confirming={creatingProduct}
+            />
           </div>
         )}
 
@@ -787,30 +839,16 @@ export default function RepartoPage() {
                 <NumPad value={scanPrice} onChange={setScanPrice} />
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <button onClick={() => setScanQty(q => Math.max(1, q - 1))}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white">
-                  <Minus className="h-4 w-4" />
-                </button>
-                <span className="w-10 text-center text-lg font-black">{scanQty}</span>
-                <button onClick={() => setScanQty(q => q + 1)}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-700 text-white">
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-              <button
-                onClick={confirmNewProduct}
-                disabled={creatingProduct || !scanPrice || !scanManualName.trim()}
-                className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-              >
-                {creatingProduct ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : `Agregar (${scanQty})`}
-              </button>
-              <button onClick={cancelScanDialog}
-                className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-400 hover:text-red-500">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            <QtyControl
+              value={scanQty}
+              onChange={setScanQty}
+              onConfirm={confirmNewProduct}
+              onCancel={cancelScanDialog}
+              confirmLabel={`Agregar (${scanQty})`}
+              confirmDisabled={!scanPrice || !scanManualName.trim()}
+              confirming={creatingProduct}
+              confirmBg="bg-amber-600"
+            />
           </div>
         )}
 

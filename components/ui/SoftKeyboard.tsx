@@ -19,8 +19,8 @@ export function NumPad({ value, onChange }: { value: string; onChange: (v: strin
             if (k !== '.' && value === '0') { onChange(k); return; }
             onChange(value + k);
           }}
-          className="flex h-11 items-center justify-center rounded-xl bg-slate-100
-                     text-lg font-bold text-slate-700 active:bg-slate-300 select-none"
+          className="flex h-14 items-center justify-center rounded-xl bg-slate-100
+                     text-xl font-bold text-slate-700 active:bg-slate-300 select-none"
         >
           {k}
         </button>
