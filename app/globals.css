@@ -35,6 +35,12 @@ input, select, textarea {
   }
 }
 
+/* ── Cursor parpadeante para teclado custom ─────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
 /* ── Animación del loader ────────────────────────────────────── */
 @keyframes slide {
   0%   { transform: translateX(-100%); }

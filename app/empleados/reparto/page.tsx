@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useCustomers } from '@/hooks/useCustomers';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
+import { KeyboardInput } from '@/components/ui/SoftKeyboard';
 import { lookupBarcode } from '@/lib/utils/barcode-lookup';
 import type {
   Customer, Delivery, DeliveryPaymentMethod,
@@ -659,16 +660,14 @@ export default function RepartoPage() {
             <p className="font-bold text-primary-900">{scannedProduct.name}</p>
             {scannedProduct.brand && <p className="text-xs text-primary-500">{scannedProduct.brand}</p>}
             <div className="mt-2 mb-3 space-y-2">
-              <div>
-                <label className="text-xs font-medium text-primary-600">Contenido del envase</label>
-                <input
-                  inputMode="text"
-                  value={scanNetContent}
-                  onChange={e => setScanNetContent(e.target.value)}
-                  placeholder="Ej: 500 g, 1 L, 6 x 330 ml"
-                  className="block w-full rounded-xl border border-primary-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
-                />
-              </div>
+              <KeyboardInput
+                label="Contenido del envase"
+                value={scanNetContent}
+                onChange={setScanNetContent}
+                placeholder="Ej: 500 g, 1 L, 6 x 330 ml"
+                labelClass="text-xs font-medium text-primary-600"
+                borderClass="border-primary-200"
+              />
               <div>
                 <label className="text-xs font-medium text-primary-600">Precio de venta ($)</label>
                 <div className="flex items-center rounded-xl border border-primary-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
@@ -708,24 +707,21 @@ export default function RepartoPage() {
           <div className="mb-4 rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-blue-500 mb-1">Encontrado en Open Food Facts</p>
             <div className="mb-3 space-y-2">
-              <div>
-                <label className="text-xs text-blue-600">Nombre</label>
-                <input
-                  value={externalInfo.name}
-                  onChange={e => setExternalInfo(prev => prev ? { ...prev, name: e.target.value } : prev)}
-                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-blue-600">Contenido del envase</label>
-                <input
-                  inputMode="text"
-                  value={scanNetContent}
-                  onChange={e => setScanNetContent(e.target.value)}
-                  placeholder="Ej: 500 g, 1 L, 6 x 330 ml"
-                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
-                />
-              </div>
+              <KeyboardInput
+                label="Nombre"
+                value={externalInfo.name}
+                onChange={v => setExternalInfo(prev => prev ? { ...prev, name: v } : prev)}
+                labelClass="text-xs text-blue-600"
+                borderClass="border-blue-200"
+              />
+              <KeyboardInput
+                label="Contenido del envase"
+                value={scanNetContent}
+                onChange={setScanNetContent}
+                placeholder="Ej: 500 g, 1 L, 6 x 330 ml"
+                labelClass="text-xs text-blue-600"
+                borderClass="border-blue-200"
+              />
               <div>
                 <label className="text-xs text-blue-600">Precio de venta ($)</label>
                 <div className="flex items-center rounded-xl border border-blue-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
@@ -766,26 +762,22 @@ export default function RepartoPage() {
           <div className="mb-4 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 mb-1">No encontrado — ingresar manualmente</p>
             <div className="mb-3 space-y-2">
-              <div>
-                <label className="text-xs text-amber-700">Nombre del producto</label>
-                <input
-                  autoFocus
-                  value={scanManualName}
-                  onChange={e => setScanManualName(e.target.value)}
-                  placeholder="Ej: Gaseosa Cola"
-                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold focus:border-primary-700 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-amber-700">Contenido del envase (opcional)</label>
-                <input
-                  inputMode="text"
-                  value={scanNetContent}
-                  onChange={e => setScanNetContent(e.target.value)}
-                  placeholder="Ej: 2 L, 500 g, 6 x 330 ml"
-                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2 focus:border-primary-700 focus:outline-none"
-                />
-              </div>
+              <KeyboardInput
+                label="Nombre del producto"
+                value={scanManualName}
+                onChange={setScanManualName}
+                placeholder="Ej: Gaseosa Cola"
+                labelClass="text-xs text-amber-700"
+                borderClass="border-amber-200"
+              />
+              <KeyboardInput
+                label="Contenido del envase (opcional)"
+                value={scanNetContent}
+                onChange={setScanNetContent}
+                placeholder="Ej: 2 L, 500 g, 6 x 330 ml"
+                labelClass="text-xs text-amber-700"
+                borderClass="border-amber-200"
+              />
               <div>
                 <label className="text-xs text-amber-700">Precio de venta ($)</label>
                 <div className="flex items-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
