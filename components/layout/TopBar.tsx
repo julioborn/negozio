@@ -45,7 +45,8 @@ const NAV_GROUPS: NavGroup[] = [
     links: [
       { href: '/empleados/venta-externa', label: 'Venta externa', icon: Smartphone,  roles: ['owner'] },
       { href: '/dashboard/viajes',        label: 'Viajes',        icon: Truck,        roles: ['owner'] },
-      { href: '/empleados/reparto',       label: 'Reparto',       icon: DollarSign,   roles: ['owner', 'employee'] },
+      { href: '/dashboard/repartos',      label: 'Repartos',      icon: DollarSign,   roles: ['owner'] },
+      { href: '/empleados/reparto',       label: 'Reparto',       icon: DollarSign,   roles: ['employee'] },
       { href: '/dashboard/clientes',      label: 'Clientes',      icon: Users,        roles: ['owner'] },
       { href: '/dashboard/cobros',        label: 'Cobros',        icon: Receipt,      roles: ['owner'] },
     ],
@@ -86,7 +87,7 @@ export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
         <div className="flex items-center gap-2.5 min-w-0">
           {showHamburger && (
             <button onClick={() => setMenuOpen(true)}
-              className="flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
+              className="flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors lg:hidden">
               <Menu className="h-5 w-5" />
             </button>
           )}

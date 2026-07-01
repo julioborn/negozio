@@ -187,7 +187,11 @@ export default function RepartoPage() {
   const [creating,         setCreating]         = useState(false);
   const [creatingProduct,  setCreatingProduct]  = useState(false);
   const [scannerFocused,   setScannerFocused]   = useState(false);
-  const barcodeRef = useRef<HTMLInputElement>(null);
+  const barcodeRef     = useRef<HTMLInputElement>(null);
+  // GPS tracking
+  const gpsWatchRef    = useRef<number | null>(null);
+  const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentPosRef  = useRef<{ lat: number; lng: number } | null>(null);
 
   // ── Nueva venta ─────────────────────────────────────────────
   const [ventaStep,        setVentaStep]        = useState<VentaStep>('cliente');
@@ -203,6 +207,37 @@ export default function RepartoPage() {
   const [historial,        setHistorial]        = useState<DeliveryWithCustomer[]>([]);
   const [historialLoading, setHistorialLoading] = useState(false);
   const [markingPaid,      setMarkingPaid]      = useState<string | null>(null);
+
+  // ── GPS tracking mientras el reparto está activo ─────────────
+  useEffect(() => {
+    if (!activeTsId || view !== 'active' || !navigator.geolocation) {
+      if (gpsWatchRef.current != null) {
+        navigator.geolocation.clearWatch(gpsWatchRef.current);
+        gpsWatchRef.current = null;
+      }
+      if (gpsIntervalRef.current) { clearInterval(gpsIntervalRef.current); gpsIntervalRef.current = null; }
+      return;
+    }
+    gpsWatchRef.current = navigator.geolocation.watchPosition(
+      pos => { currentPosRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+      err => console.warn('GPS:', err),
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+    );
+    // Guardar waypoint cada 30 segundos
+    gpsIntervalRef.current = setInterval(async () => {
+      if (!currentPosRef.current || !activeTsId) return;
+      await supabase.from('reparto_waypoints').insert({
+        travel_stock_id: activeTsId,
+        lat: currentPosRef.current.lat,
+        lng: currentPosRef.current.lng,
+        type: 'route',
+      });
+    }, 30000);
+    return () => {
+      if (gpsWatchRef.current != null) { navigator.geolocation.clearWatch(gpsWatchRef.current); gpsWatchRef.current = null; }
+      if (gpsIntervalRef.current) { clearInterval(gpsIntervalRef.current); gpsIntervalRef.current = null; }
+    };
+  }, [activeTsId, view, supabase]);
 
   // ── Helpers ─────────────────────────────────────────────────
   const fetchTsItems = useCallback(async (tsId: string): Promise<TravelStockItem[]> => {
@@ -489,6 +524,17 @@ export default function RepartoPage() {
       if (error) throw new Error(error.message);
 
       const total = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
+      // Guardar punto de entrega en el mapa
+      if (currentPosRef.current && activeTsId) {
+        supabase.from('reparto_waypoints').insert({
+          travel_stock_id: activeTsId,
+          lat:           currentPosRef.current.lat,
+          lng:           currentPosRef.current.lng,
+          type:          'delivery',
+          customer_name: selectedCustomer.name,
+          total_amount:  total,
+        }).then(() => {});
+      }
       setLastVenta({ customer: selectedCustomer, total, method: payMethod });
       const updated = await fetchTsItems(activeTsId);
       setTsItems(updated);
