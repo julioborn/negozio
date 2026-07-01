@@ -56,7 +56,7 @@ function payLabel(m: DeliveryPaymentMethod | null): string {
 function parseNetContent(s: string | null): { qty: string; unit: string } {
   if (!s) return { qty: '', unit: '' };
   const m = s.trim().match(/^([\d.,]+)\s*([a-zA-Z]+)/);
-  if (!m) return { qty: '', unit: '' };
+  if (!m || !m[1] || !m[2]) return { qty: '', unit: '' };
   const qty = m[1].replace(',', '.');
   const raw = m[2].toLowerCase();
   const MAP: Record<string, string> = {
