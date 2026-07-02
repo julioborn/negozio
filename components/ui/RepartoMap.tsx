@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Fix Leaflet default icon (Next.js no sirve los assets de leaflet automáticamente)
 const pinIcon = (color: string) => L.divIcon({
   className: '',
   html: `<div style="
@@ -33,78 +32,148 @@ export interface DeliveryPoint {
 }
 
 interface Props {
-  waypoints:       Waypoint[];
-  deliveryPoints:  DeliveryPoint[];
-  className?:      string;
+  waypoints:      Waypoint[];
+  deliveryPoints: DeliveryPoint[];
+  className?:     string;
+}
+
+// ── OSRM Map Matching: convierte puntos GPS en ruta por calles ─────────────
+const CHUNK = 99;
+
+async function snapToRoads(pts: Waypoint[]): Promise<[number, number][]> {
+  if (pts.length < 2) return pts.map(p => [p.lat, p.lng]);
+
+  const chunks: Waypoint[][] = [];
+  for (let i = 0; i < pts.length; i += CHUNK) {
+    const chunk = pts.slice(i, i + CHUNK + 1);
+    if (chunk.length >= 2) chunks.push(chunk);
+  }
+
+  const result: [number, number][] = [];
+
+  for (const chunk of chunks) {
+    const coords     = chunk.map(p => `${p.lng},${p.lat}`).join(';');
+    const radiuses   = chunk.map(() => '25').join(';');
+    const timestamps = chunk
+      .map(p => Math.floor(new Date(p.recorded_at).getTime() / 1000))
+      .join(';');
+
+    try {
+      const res = await fetch(
+        `https://router.project-osrm.org/match/v1/driving/${coords}` +
+        `?overview=full&geometries=geojson&radiuses=${radiuses}&timestamps=${timestamps}`
+      );
+      if (!res.ok) throw new Error('OSRM error');
+      const data = await res.json();
+
+      if (data.code === 'Ok' && data.matchings?.length) {
+        const snapped = (data.matchings as { geometry: { coordinates: [number, number][] } }[])
+          .flatMap(m => m.geometry.coordinates)
+          .map(([lng, lat]) => [lat, lng] as [number, number]);
+        if (result.length > 0) snapped.shift();
+        result.push(...snapped);
+      } else {
+        const raw = chunk.map(p => [p.lat, p.lng] as [number, number]);
+        if (result.length > 0) raw.shift();
+        result.push(...raw);
+      }
+    } catch {
+      const raw = chunk.map(p => [p.lat, p.lng] as [number, number]);
+      if (result.length > 0) raw.shift();
+      result.push(...raw);
+    }
+  }
+
+  return result;
 }
 
 export default function RepartoMap({ waypoints, deliveryPoints, className = '' }: Props) {
+  const [roadRoute, setRoadRoute] = useState<[number, number][]>([]);
+  const [snapping,  setSnapping]  = useState(false);
+
+  const rawRoute = waypoints.map(w => [w.lat, w.lng] as [number, number]);
+
   useEffect(() => {
-    // Nada — solo asegura que el componente se monte en cliente
-  }, []);
+    if (waypoints.length < 2) { setRoadRoute([]); return; }
+    setSnapping(true);
+    setRoadRoute([]);
+    snapToRoads(waypoints)
+      .then(route => setRoadRoute(route))
+      .finally(() => setSnapping(false));
+  }, [waypoints]);
 
   const allPoints = [
-    ...waypoints.map(w => [w.lat, w.lng] as [number, number]),
+    ...rawRoute,
     ...deliveryPoints.map(d => [d.lat, d.lng] as [number, number]),
   ];
-
   const center: [number, number] = allPoints.length > 0
     ? [
         allPoints.reduce((s, p) => s + p[0], 0) / allPoints.length,
         allPoints.reduce((s, p) => s + p[1], 0) / allPoints.length,
       ]
-    : [-34.6, -58.4]; // Buenos Aires por defecto
-
-  const routePositions = waypoints.map(w => [w.lat, w.lng] as [number, number]);
+    : [-34.6, -58.4];
 
   return (
-    <MapContainer
-      center={center}
-      zoom={13}
-      className={`h-full w-full rounded-xl ${className}`}
-      style={{ minHeight: 320 }}
-    >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
-      />
+    <div className="relative h-full w-full">
+      <MapContainer
+        center={center}
+        zoom={14}
+        className={`h-full w-full rounded-xl ${className}`}
+        style={{ minHeight: 320 }}
+      >
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
+        />
 
-      {/* Ruta del recorrido */}
-      {routePositions.length > 1 && (
-        <Polyline positions={routePositions} color="#1700a5" weight={3} opacity={0.7} />
+        {/* Ruta por calles (OSRM) */}
+        {roadRoute.length > 1 && (
+          <Polyline positions={roadRoute} color="#1d4ed8" weight={4} opacity={0.85} />
+        )}
+
+        {/* Línea directa temporal mientras OSRM calcula */}
+        {snapping && rawRoute.length > 1 && (
+          <Polyline positions={rawRoute} color="#94a3b8" weight={2} opacity={0.4} dashArray="6 8" />
+        )}
+
+        {/* Pin inicio */}
+        {waypoints[0] && (
+          <Marker position={[waypoints[0].lat, waypoints[0].lng]} icon={pinIcon('#22c55e')}>
+            <Popup>Inicio del reparto</Popup>
+          </Marker>
+        )}
+
+        {/* Pin fin */}
+        {waypoints.length > 1 && (
+          <Marker
+            position={[waypoints[waypoints.length - 1]!.lat, waypoints[waypoints.length - 1]!.lng]}
+            icon={pinIcon('#ef4444')}
+          >
+            <Popup>Último punto registrado</Popup>
+          </Marker>
+        )}
+
+        {/* Puntos de entrega */}
+        {deliveryPoints.map((d, i) => (
+          <CircleMarker
+            key={i}
+            center={[d.lat, d.lng]}
+            radius={10}
+            pathOptions={{ color: '#7c3aed', fillColor: '#a78bfa', fillOpacity: 0.9 }}
+          >
+            <Popup>
+              <strong>{d.customer_name}</strong><br />
+              ${d.total_amount.toFixed(2)}
+            </Popup>
+          </CircleMarker>
+        ))}
+      </MapContainer>
+
+      {snapping && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-600 shadow">
+          Calculando ruta por calles…
+        </div>
       )}
-
-      {/* Punto de inicio */}
-      {waypoints[0] && (
-        <Marker position={[waypoints[0].lat, waypoints[0].lng]} icon={pinIcon('#22c55e')}>
-          <Popup>Inicio del reparto</Popup>
-        </Marker>
-      )}
-
-      {/* Punto de cierre */}
-      {waypoints.length > 1 && waypoints[waypoints.length - 1] && (
-        <Marker
-          position={[waypoints[waypoints.length - 1]!.lat, waypoints[waypoints.length - 1]!.lng]}
-          icon={pinIcon('#ef4444')}
-        >
-          <Popup>Cierre del reparto</Popup>
-        </Marker>
-      )}
-
-      {/* Puntos de entrega */}
-      {deliveryPoints.map((d, i) => (
-        <CircleMarker
-          key={i}
-          center={[d.lat, d.lng]}
-          radius={10}
-          pathOptions={{ color: '#1700a5', fillColor: '#6366f1', fillOpacity: 0.9 }}
-        >
-          <Popup>
-            <strong>{d.customer_name}</strong><br />
-            ${d.total_amount.toFixed(2)}
-          </Popup>
-        </CircleMarker>
-      ))}
-    </MapContainer>
+    </div>
   );
 }
