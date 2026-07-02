@@ -191,6 +191,9 @@ export default function RepartoPage() {
   const [creatingProduct,  setCreatingProduct]  = useState(false);
   const [scannerFocused,   setScannerFocused]   = useState(false);
   const [cameraOpen,       setCameraOpen]       = useState(false);
+  const [epProducts,       setEpProducts]       = useState<EstablishmentProductDetail[]>([]);
+  const [productSearch,    setProductSearch]    = useState('');
+  const [loadingProds,     setLoadingProds]     = useState(false);
   const barcodeRef     = useRef<HTMLInputElement>(null);
   // GPS tracking
   const gpsWatchRef    = useRef<number | null>(null);
@@ -243,6 +246,21 @@ export default function RepartoPage() {
       if (gpsIntervalRef.current) { clearInterval(gpsIntervalRef.current); gpsIntervalRef.current = null; }
     };
   }, [activeTsId, supabase]);
+
+  // ── Carga productos existentes al entrar a la vista scanning ─
+  useEffect(() => {
+    if (view !== 'scanning' || !establishmentId) return;
+    setLoadingProds(true);
+    supabase
+      .from('establishment_products_detail')
+      .select('*')
+      .eq('establishment_id', establishmentId)
+      .order('name')
+      .then(({ data }) => {
+        setEpProducts((data as EstablishmentProductDetail[]) ?? []);
+        setLoadingProds(false);
+      });
+  }, [view, establishmentId, supabase]);
 
   // ── Helpers ─────────────────────────────────────────────────
   const fetchTsItems = useCallback(async (tsId: string): Promise<TravelStockItem[]> => {
@@ -610,6 +628,16 @@ export default function RepartoPage() {
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [filteredCustomers]);
 
+  // ── Filtro de productos existentes ──────────────────────────
+  const filteredEpProducts = useMemo(() => {
+    if (!productSearch.trim()) return epProducts;
+    const q = productSearch.toLowerCase();
+    return epProducts.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      (p.brand ?? '').toLowerCase().includes(q)
+    );
+  }, [epProducts, productSearch]);
+
   // ── Cart total ───────────────────────────────────────────────
   const cartTotal = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
 
@@ -811,6 +839,64 @@ export default function RepartoPage() {
               setTimeout(() => barcodeRef.current?.focus(), 150);
             }}
           />
+        )}
+
+        {/* ── Productos existentes ── */}
+        {scanMode === 'idle' && (
+          <div className="mb-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              O elegí de tus productos
+            </p>
+            <div className="relative mb-2">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={productSearch}
+                onChange={e => setProductSearch(e.target.value)}
+                placeholder="Buscar producto…"
+                className="block w-full rounded-xl border border-slate-200 bg-white
+                           py-2.5 pl-9 pr-4 text-sm focus:border-primary-700 focus:outline-none"
+              />
+            </div>
+            {loadingProds ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : filteredEpProducts.length === 0 ? (
+              <p className="py-4 text-center text-xs text-slate-400">
+                {epProducts.length === 0 ? 'Todavía no hay productos cargados' : 'No se encontraron productos'}
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                {filteredEpProducts.map((p, i) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setScannedProduct(p);
+                      setScanMode('local');
+                      setScanQty(1);
+                      setScanLocalPrice(String(p.price));
+                      const lp = parseNetContent(p.net_content ?? '');
+                      setNetQty(lp.qty);
+                      setNetUnit(lp.unit);
+                    }}
+                    className={`flex w-full items-center justify-between px-4 py-3 text-left
+                                hover:bg-slate-50 active:bg-primary-50
+                                ${i > 0 ? 'border-t border-slate-50' : ''}`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">{p.name}</p>
+                      <p className="text-xs text-slate-400">
+                        {formatCurrency(p.price)}
+                        {p.net_content ? ` · ${p.net_content}` : ''}
+                        {p.brand ? ` · ${p.brand}` : ''}
+                      </p>
+                    </div>
+                    <Plus className="ml-3 h-4 w-4 shrink-0 text-primary-600" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {/* ── Modo LOCAL: producto ya estaba en el sistema ── */}
