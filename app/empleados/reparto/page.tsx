@@ -194,11 +194,12 @@ export default function RepartoPage() {
   const [epProducts,       setEpProducts]       = useState<EstablishmentProductDetail[]>([]);
   const [productSearch,    setProductSearch]    = useState('');
   const [loadingProds,     setLoadingProds]     = useState(false);
-  const barcodeRef     = useRef<HTMLInputElement>(null);
+  const barcodeRef       = useRef<HTMLInputElement>(null);
   // GPS tracking
-  const gpsWatchRef    = useRef<number | null>(null);
-  const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const currentPosRef  = useRef<{ lat: number; lng: number } | null>(null);
+  const gpsWatchRef      = useRef<number | null>(null);
+  const currentPosRef    = useRef<{ lat: number; lng: number } | null>(null);
+  const lastSavedPosRef  = useRef<{ lat: number; lng: number } | null>(null);
+  const lastSavedTimeRef = useRef<number>(0);
 
   // ── Nueva venta ─────────────────────────────────────────────
   const [ventaStep,        setVentaStep]        = useState<VentaStep>('cliente');
@@ -216,34 +217,59 @@ export default function RepartoPage() {
   const [markingPaid,      setMarkingPaid]      = useState<string | null>(null);
 
   // ── GPS tracking — corre durante todo el reparto activo ───────
-  // No depende de `view` para que no se corte al navegar a sub-vistas
+  // Guarda en DB cuando el dispositivo se movió > 15m O pasaron > 10s
   useEffect(() => {
     if (!activeTsId || !navigator.geolocation) {
       if (gpsWatchRef.current != null) {
         navigator.geolocation.clearWatch(gpsWatchRef.current);
         gpsWatchRef.current = null;
       }
-      if (gpsIntervalRef.current) { clearInterval(gpsIntervalRef.current); gpsIntervalRef.current = null; }
       return;
     }
+
+    // Distancia en metros entre dos coordenadas (Haversine simplificado)
+    function metersBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+      const R = 6371000;
+      const dLat = (b.lat - a.lat) * Math.PI / 180;
+      const dLng = (b.lng - a.lng) * Math.PI / 180;
+      const h = Math.sin(dLat / 2) ** 2 +
+        Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) *
+        Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.asin(Math.sqrt(h));
+    }
+
     gpsWatchRef.current = navigator.geolocation.watchPosition(
-      pos => { currentPosRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }; },
+      async pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        currentPosRef.current = { lat, lng };
+
+        const now      = Date.now();
+        const elapsed  = now - lastSavedTimeRef.current;
+        const moved    = lastSavedPosRef.current
+          ? metersBetween(lastSavedPosRef.current, { lat, lng })
+          : Infinity;
+
+        // Guardar si se movió más de 15m O pasaron más de 10s desde el último punto
+        if (moved > 15 || elapsed > 10000) {
+          lastSavedTimeRef.current = now;
+          lastSavedPosRef.current  = { lat, lng };
+          await supabase.from('reparto_waypoints').insert({
+            travel_stock_id: activeTsId,
+            lat, lng,
+            type: 'route',
+          });
+        }
+      },
       err => console.warn('GPS:', err),
-      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     );
-    // Guardar waypoint de ruta cada 30 segundos
-    gpsIntervalRef.current = setInterval(async () => {
-      if (!currentPosRef.current || !activeTsId) return;
-      await supabase.from('reparto_waypoints').insert({
-        travel_stock_id: activeTsId,
-        lat: currentPosRef.current.lat,
-        lng: currentPosRef.current.lng,
-        type: 'route',
-      });
-    }, 30000);
+
     return () => {
-      if (gpsWatchRef.current != null) { navigator.geolocation.clearWatch(gpsWatchRef.current); gpsWatchRef.current = null; }
-      if (gpsIntervalRef.current) { clearInterval(gpsIntervalRef.current); gpsIntervalRef.current = null; }
+      if (gpsWatchRef.current != null) {
+        navigator.geolocation.clearWatch(gpsWatchRef.current);
+        gpsWatchRef.current = null;
+      }
     };
   }, [activeTsId, supabase]);
 
