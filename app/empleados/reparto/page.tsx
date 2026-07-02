@@ -216,6 +216,14 @@ export default function RepartoPage() {
   const [historialLoading, setHistorialLoading] = useState(false);
   const [markingPaid,      setMarkingPaid]      = useState<string | null>(null);
 
+  interface RepartoGroup {
+    tsId:       string;
+    date:       string;
+    status:     string;
+    deliveries: DeliveryWithCustomer[];
+  }
+  const [repartoGroups, setRepartoGroups] = useState<RepartoGroup[]>([]);
+
   // ── GPS tracking — corre durante todo el reparto activo ───────
   // Guarda en DB cuando el dispositivo se movió > 15m O pasaron > 10s
   useEffect(() => {
@@ -597,24 +605,51 @@ export default function RepartoPage() {
 
   // ── Historial ────────────────────────────────────────────────
   const loadHistorial = useCallback(async () => {
-    if (!establishmentId) return;
+    if (!establishmentId || !user) return;
     setHistorialLoading(true);
-    let query = supabase
-      .from('deliveries')
-      .select('*, customer:customers(*)')
-      .eq('establishment_id', establishmentId)
-      .order('created_at', { ascending: false });
 
     if (activeTsId) {
-      query = query.eq('travel_stock_id', activeTsId);
+      // Reparto activo: solo las ventas del día (lista plana)
+      const { data } = await supabase
+        .from('deliveries')
+        .select('*, customer:customers(*)')
+        .eq('travel_stock_id', activeTsId)
+        .order('created_at', { ascending: false });
+      setHistorial((data ?? []) as DeliveryWithCustomer[]);
+      setRepartoGroups([]);
     } else {
-      query = query.limit(50);
+      // Sin reparto activo: agrupar por reparto
+      const [tsRes, delRes] = await Promise.all([
+        supabase
+          .from('travel_stocks')
+          .select('id, created_at, status')
+          .eq('establishment_id', establishmentId)
+          .eq('assigned_to', user.id)
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabase
+          .from('deliveries')
+          .select('*, customer:customers(*)')
+          .eq('establishment_id', establishmentId)
+          .eq('sold_by', user.id)
+          .order('created_at', { ascending: false })
+          .limit(200),
+      ]);
+
+      const deliveries = (delRes.data ?? []) as DeliveryWithCustomer[];
+      const groups = (tsRes.data ?? []).map(ts => ({
+        tsId:       ts.id as string,
+        date:       ts.created_at as string,
+        status:     ts.status as string,
+        deliveries: deliveries.filter(d => d.travel_stock_id === ts.id),
+      })).filter(g => g.deliveries.length > 0);
+
+      setRepartoGroups(groups);
+      setHistorial([]);
     }
 
-    const { data } = await query;
-    setHistorial((data ?? []) as DeliveryWithCustomer[]);
     setHistorialLoading(false);
-  }, [supabase, establishmentId, activeTsId]);
+  }, [supabase, establishmentId, activeTsId, user]);
 
   async function handleMarkPaid(deliveryId: string) {
     setMarkingPaid(deliveryId);
@@ -1463,92 +1498,147 @@ export default function RepartoPage() {
   // HISTORIAL
   // ─────────────────────────────────────────────────────────────
   if (view === 'historial') {
-    const paid    = historial.filter(d => d.payment_status === 'paid');
-    const pending = historial.filter(d => d.payment_status === 'pending');
-    const totalPaid    = paid.reduce((s, d)    => s + Number(d.total_amount), 0);
-    const totalPending = pending.reduce((s, d) => s + Number(d.total_amount), 0);
 
+    // ── Lista plana de entregas (usada en reparto activo) ─────
+    function DeliveryCard({ d }: { d: DeliveryWithCustomer }) {
+      return (
+        <div className={`rounded-xl border-2 p-4 ${
+          d.payment_status === 'paid' ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'
+        }`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-slate-900">{d.customer?.name}</p>
+              <p className="text-sm font-bold text-slate-700 tabular-nums">
+                {formatCurrency(Number(d.total_amount))}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {new Date(d.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                {' · '}{payLabel(d.payment_method)}
+              </p>
+            </div>
+            <div className="shrink-0">
+              {d.payment_status === 'pending' ? (
+                <button
+                  onClick={() => handleMarkPaid(d.id)}
+                  disabled={markingPaid === d.id}
+                  className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5
+                             text-xs font-bold text-white disabled:opacity-50"
+                >
+                  {markingPaid === d.id
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <CheckCircle2 className="h-3 w-3" />}
+                  Cobrar
+                </button>
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeTsId) {
+      // ── Vista: ventas del reparto activo ──────────────────────
+      const paid    = historial.filter(d => d.payment_status === 'paid');
+      const pending = historial.filter(d => d.payment_status === 'pending');
+      const totalPaid    = paid.reduce((s, d) => s + Number(d.total_amount), 0);
+      const totalPending = pending.reduce((s, d) => s + Number(d.total_amount), 0);
+
+      return (
+        <div className="mx-auto max-w-md p-4 pb-8">
+          <div className="mb-5 flex items-center gap-3">
+            <button onClick={() => setView('active')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <h1 className="text-xl font-black text-slate-900">Ventas del día</h1>
+          </div>
+
+          {historial.length > 0 && (
+            <div className="mb-4 grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-center">
+                <p className="text-lg font-black text-green-800 tabular-nums">{formatCurrency(totalPaid)}</p>
+                <p className="text-xs text-green-600">{paid.length} cobrada{paid.length !== 1 ? 's' : ''}</p>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-center">
+                <p className="text-lg font-black text-amber-800 tabular-nums">{formatCurrency(totalPending)}</p>
+                <p className="text-xs text-amber-600">{pending.length} pendiente{pending.length !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
+          )}
+
+          {historialLoading ? (
+            <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+          ) : historial.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-14 text-center">
+              <Package className="h-12 w-12 text-slate-200" />
+              <p className="text-sm text-slate-400">No hay ventas registradas aún</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {historial.map(d => <DeliveryCard key={d.id} d={d} />)}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Vista: historial agrupado por repartos ────────────────
     return (
       <div className="mx-auto max-w-md p-4 pb-8">
         <div className="mb-5 flex items-center gap-3">
-          <button
-            onClick={() => setView(activeTsId ? 'active' : 'home')}
-            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
-          >
+          <button onClick={() => setView('home')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h1 className="text-xl font-black text-slate-900">
-            {activeTsId ? 'Ventas del día' : 'Historial de repartos'}
-          </h1>
+          <h1 className="text-xl font-black text-slate-900">Historial de repartos</h1>
         </div>
 
-        {/* Resumen */}
-        {historial.length > 0 && (
-          <div className="mb-4 grid grid-cols-2 gap-2">
-            <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-center">
-              <p className="text-lg font-black text-green-800 tabular-nums">{formatCurrency(totalPaid)}</p>
-              <p className="text-xs text-green-600">{paid.length} cobrada{paid.length !== 1 ? 's' : ''}</p>
-            </div>
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-center">
-              <p className="text-lg font-black text-amber-800 tabular-nums">{formatCurrency(totalPending)}</p>
-              <p className="text-xs text-amber-600">{pending.length} pendiente{pending.length !== 1 ? 's' : ''}</p>
-            </div>
-          </div>
-        )}
-
         {historialLoading ? (
-          <div className="flex justify-center py-10">
-            <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-          </div>
-        ) : historial.length === 0 ? (
+          <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+        ) : repartoGroups.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-14 text-center">
             <Package className="h-12 w-12 text-slate-200" />
-            <p className="text-sm text-slate-400">No hay ventas registradas aún</p>
+            <p className="text-sm text-slate-400">No hay repartos registrados aún</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {historial.map(d => (
-              <div
-                key={d.id}
-                className={`rounded-xl border-2 p-4 ${
-                  d.payment_status === 'paid'
-                    ? 'border-green-200 bg-green-50'
-                    : 'border-amber-200 bg-amber-50'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-900">{d.customer?.name}</p>
-                    <p className="text-sm font-bold text-slate-700 tabular-nums">
-                      {formatCurrency(Number(d.total_amount))}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {new Date(d.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                      {' · '}
-                      {payLabel(d.payment_method)}
-                    </p>
+          <div className="flex flex-col gap-5">
+            {repartoGroups.map(group => {
+              const gPaid    = group.deliveries.filter(d => d.payment_status === 'paid');
+              const gPending = group.deliveries.filter(d => d.payment_status === 'pending');
+              const gTotal   = group.deliveries.reduce((s, d) => s + Number(d.total_amount), 0);
+              return (
+                <div key={group.tsId}>
+                  {/* Cabecera del reparto */}
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Truck className="h-4 w-4 text-primary-600" />
+                      <p className="text-sm font-black text-slate-800">
+                        Reparto {new Date(group.date).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      </p>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        group.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {group.status === 'active' ? 'Activo' : 'Completado'}
+                      </span>
+                    </div>
+                    <p className="text-sm font-black text-slate-900">{formatCurrency(gTotal)}</p>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    {d.payment_status === 'pending' ? (
-                      <button
-                        onClick={() => handleMarkPaid(d.id)}
-                        disabled={markingPaid === d.id}
-                        className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5
-                                   text-xs font-bold text-white disabled:opacity-50"
-                      >
-                        {markingPaid === d.id
-                          ? <Loader2 className="h-3 w-3 animate-spin" />
-                          : <CheckCircle2 className="h-3 w-3" />
-                        }
-                        Cobrar
-                      </button>
-                    ) : (
-                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+
+                  {/* Mini resumen */}
+                  <div className="mb-2 flex gap-3 text-xs">
+                    <span className="text-green-700 font-semibold">{gPaid.length} cobrada{gPaid.length !== 1 ? 's' : ''}</span>
+                    {gPending.length > 0 && (
+                      <span className="text-amber-600 font-semibold">{gPending.length} pendiente{gPending.length !== 1 ? 's' : ''}</span>
                     )}
                   </div>
+
+                  {/* Entregas del reparto */}
+                  <div className="flex flex-col gap-2">
+                    {group.deliveries.map(d => <DeliveryCard key={d.id} d={d} />)}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
