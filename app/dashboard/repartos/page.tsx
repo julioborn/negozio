@@ -458,20 +458,27 @@ export default function RepartosPage() {
                   {(() => {
                     const routeWps = rep.waypoints.filter(w => !w.type || w.type === 'route');
                     const delivWps = rep.waypoints
-                      .filter(w => w.type === 'delivery' && w.customer_name)
+                      .filter(w => w.type === 'delivery')
                       .map(w => ({
                         lat:           w.lat,
                         lng:           w.lng,
-                        customer_name: w.customer_name!,
+                        customer_name: w.customer_name ?? 'Venta',
                         total_amount:  w.total_amount ?? 0,
                         created_at:    w.recorded_at,
                       }));
                     const hasGps = routeWps.length > 0 || delivWps.length > 0;
                     return (
                       <div>
-                        <div className="mb-2 flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-slate-400" />
-                          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recorrido</p>
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4 text-slate-400" />
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recorrido</p>
+                          </div>
+                          {hasGps && (
+                            <span className="text-[11px] text-slate-400">
+                              {routeWps.length} pts ruta · {delivWps.length} ventas
+                            </span>
+                          )}
                         </div>
                         {hasGps ? (
                           <div className="h-80 overflow-hidden rounded-xl border border-slate-200">
@@ -480,8 +487,8 @@ export default function RepartosPage() {
                         ) : (
                           <div className="flex h-32 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-slate-50">
                             <MapPin className="h-7 w-7 text-slate-300" />
-                            <p className="text-sm text-slate-400">Sin datos de ubicación</p>
-                            <p className="text-xs text-slate-300">Se registrará en los próximos repartos</p>
+                            <p className="text-sm text-slate-400">Sin datos de GPS</p>
+                            <p className="text-xs text-slate-300">El empleado debe permitir ubicación en el celular</p>
                           </div>
                         )}
                       </div>
