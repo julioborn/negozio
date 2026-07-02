@@ -121,6 +121,7 @@ export default function RepartosPage() {
   const supabase   = useMemo(() => createClient(), []);
 
   const [repartos,      setRepartos]      = useState<RepartoDetail[]>([]);
+  const [profiles,      setProfiles]      = useState<ProfileMin[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [expanded,      setExpanded]      = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
@@ -129,19 +130,26 @@ export default function RepartosPage() {
   const [editPrice, setEditPrice]   = useState<{ itemId: string; epId: string | null; value: string } | null>(null);
   const [savingPrice, setSavingPrice] = useState(false);
 
-  // ── Lista de repartos ─────────────────────────────────────
+  // ── Lista de repartos + perfiles ──────────────────────────
   useEffect(() => {
     if (!estId) return;
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const { data } = await supabase
-        .from('travel_stocks')
-        .select('*, assigned_profile:assigned_to(id, full_name, email, role)')
-        .eq('establishment_id', estId)
-        .order('created_at', { ascending: false });
+      const [tsRes, profRes] = await Promise.all([
+        supabase
+          .from('travel_stocks')
+          .select('*')
+          .eq('establishment_id', estId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('profiles')
+          .select('id, full_name, email, role')
+          .eq('establishment_id', estId),
+      ]);
       if (cancelled) return;
-      setRepartos((data ?? []).map((ts: TravelStock & { assigned_profile?: Pick<Profile, 'id' | 'full_name' | 'email' | 'role'> }) => ({
+      setProfiles((profRes.data ?? []) as ProfileMin[]);
+      setRepartos((tsRes.data ?? []).map((ts: TravelStock) => ({
         ...ts, items: [], deliveries: [], waypoints: [],
       })));
       setLoading(false);
@@ -263,6 +271,7 @@ export default function RepartosPage() {
           const isLoadingDt = detailLoading === rep.id;
           const totalVendido = rep.deliveries.reduce((s, d) => s + d.total_amount, 0);
           const pendiente    = rep.deliveries.filter(d => d.payment_status === 'pending').reduce((s, d) => s + d.total_amount, 0);
+          const assignedProfile = profiles.find(p => p.id === rep.assigned_to);
 
           return (
             <div key={rep.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -282,7 +291,7 @@ export default function RepartosPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-slate-900">
-                      {rep.assigned_profile?.full_name ?? 'Sin asignar'}
+                      {assignedProfile?.full_name ?? 'Sin asignar'}
                     </p>
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_COLORS[rep.status]}`}>
                       {STATUS_LABELS[rep.status]}
