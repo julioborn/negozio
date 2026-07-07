@@ -20,7 +20,6 @@ export default function CameraScanner({ onScan, onClose }: Props) {
   const [zoom,      setZoom]      = useState(1);
   const [zoomCaps,  setZoomCaps]  = useState<{ min: number; max: number } | null>(null);
   const [torch,     setTorch]     = useState(false);
-  const [hasTorch,  setHasTorch]  = useState(false);
 
   // Cerrar teclado al montar — blur inmediato y con delay por si Android lo reabre
   useEffect(() => {
@@ -65,9 +64,6 @@ export default function CameraScanner({ onScan, onClose }: Props) {
               // Detectar capacidades
               if (caps.zoom) {
                 setZoomCaps({ min: caps.zoom.min ?? 1, max: Math.min(caps.zoom.max ?? 8, 8) });
-              }
-              if (caps.torch) {
-                setHasTorch(true);
               }
 
               // Intentar macro: focusDistance al mínimo + continuous
@@ -166,17 +162,15 @@ export default function CameraScanner({ onScan, onClose }: Props) {
       <div className="flex items-center justify-between px-4 py-3 text-white">
         <p className="text-base font-semibold">Escanear código de barras</p>
         <div className="flex items-center gap-2">
-          {hasTorch && (
-            <button
-              onPointerDown={(e) => { e.preventDefault(); toggleTorch(); }}
-              className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
-                torch ? 'bg-yellow-400 text-black' : 'bg-white/10 text-white active:bg-white/20'
-              }`}
-              title="Flash"
-            >
-              {torch ? <Zap className="h-5 w-5" /> : <ZapOff className="h-5 w-5" />}
-            </button>
-          )}
+          <button
+            onPointerDown={(e) => { e.preventDefault(); toggleTorch(); }}
+            className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+              torch ? 'bg-yellow-400 text-black' : 'bg-white/10 text-white active:bg-white/20'
+            }`}
+            title="Flash"
+          >
+            {torch ? <Zap className="h-5 w-5" /> : <ZapOff className="h-5 w-5" />}
+          </button>
           <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 active:bg-white/20">
             <X className="h-5 w-5" />
           </button>
