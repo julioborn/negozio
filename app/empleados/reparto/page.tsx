@@ -1567,12 +1567,18 @@ export default function RepartoPage() {
                 return (
                   <div
                     key={item.id}
-                    className={`flex items-center justify-between px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}
+                    className={`flex items-center justify-between px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''} ${
+                      remaining === 0 ? 'bg-red-50' : 'bg-green-50'
+                    }`}
                   >
-                    <p className="text-sm text-slate-800">{item.product_name}</p>
+                    <p className={`text-sm font-medium ${remaining === 0 ? 'text-red-800' : 'text-green-900'}`}>
+                      {item.product_name}
+                    </p>
                     <div className="flex gap-4 text-xs tabular-nums">
-                      <span className="text-slate-400">vendidos: {item.quantity_sold}</span>
-                      <span className={remaining === 0 ? 'text-slate-400' : 'font-bold text-slate-900'}>
+                      <span className={remaining === 0 ? 'text-red-400' : 'text-green-600'}>
+                        vendidos: {item.quantity_sold}
+                      </span>
+                      <span className={`font-bold ${remaining === 0 ? 'text-red-500' : 'text-green-700'}`}>
                         quedan: {remaining}
                       </span>
                     </div>
