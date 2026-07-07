@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 
 import { AuthProvider }   from '@/components/auth/AuthProvider';
-import { PullToRefresh }  from '@/components/ui/PullToRefresh';
 import { ScrollToTop }    from '@/components/ui/ScrollToTop';
 import { Toaster }        from '@/components/ui/Toast';
 
@@ -43,7 +42,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ScrollToTop />
         <AuthProvider>{children}</AuthProvider>
         <Toaster />
-        <PullToRefresh />
       </body>
     </html>
   );

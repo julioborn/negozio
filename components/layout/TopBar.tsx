@@ -4,11 +4,11 @@ import { useState } from 'react';
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 import {
   BoxesIcon, DollarSign, Home, LogOut, Menu,
-  PackagePlus, Receipt, Settings, ShoppingCart,
+  PackagePlus, Receipt, RefreshCw, Settings, ShoppingCart,
   Smartphone, Truck, Users, X,
 } from 'lucide-react';
 
@@ -65,8 +65,16 @@ interface Props {
 }
 
 export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpen,    setMenuOpen]    = useState(false);
+  const [refreshing,  setRefreshing]  = useState(false);
   const { user, signOut } = useAuth();
+  const router = useRouter();
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    router.refresh();
+    setTimeout(() => setRefreshing(false), 800);
+  }
   const establishment = useAuthStore((s) => s.establishment);
   const pathname = usePathname();
 
@@ -105,6 +113,14 @@ export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
 
         <div className="flex items-center gap-2">
           {rightExtra}
+          <button
+            onClick={handleRefresh}
+            title="Recargar"
+            className="flex items-center justify-center rounded-lg p-2 text-slate-400
+                       hover:bg-slate-100 hover:text-slate-700 transition-colors"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
           <span className={cn('hidden rounded-full px-2.5 py-0.5 text-xs font-medium sm:inline-flex',
             ROLE_COLORS[role] ?? ROLE_COLORS.employee)}>
             {ROLE_LABELS[role] ?? role}
