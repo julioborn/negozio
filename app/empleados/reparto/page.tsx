@@ -1358,7 +1358,7 @@ export default function RepartoPage() {
         {/* Status header */}
         <div className="mb-6">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-black text-slate-900">En ruta</h1>
+            <h1 className="text-xl font-black text-slate-900">En reparto</h1>
             <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
               ● Activo
             </span>
@@ -1413,7 +1413,7 @@ export default function RepartoPage() {
                        transition-transform active:scale-[0.97]"
           >
             <Plus className="h-5 w-5" />
-            <span className="text-sm font-semibold">Agregar productos al reparto</span>
+            <span className="text-sm font-semibold">AGREGAR PRODUCTOS NUEVOS</span>
           </button>
 
           <button
@@ -1423,7 +1423,7 @@ export default function RepartoPage() {
                        transition-transform active:scale-[0.97]"
           >
             <History className="h-5 w-5 text-slate-400" />
-            <span className="text-sm font-semibold">Ver ventas del día</span>
+            <span className="text-sm font-semibold">VENTAS DEL REPARTO</span>
           </button>
 
           <button
@@ -1433,7 +1433,7 @@ export default function RepartoPage() {
                        transition-transform active:scale-[0.97]"
           >
             <X className="h-5 w-5" />
-            <span className="text-sm font-semibold">Cerrar reparto del día</span>
+            <span className="text-sm font-semibold">CERRAR REPARTO</span>
           </button>
         </div>
 
