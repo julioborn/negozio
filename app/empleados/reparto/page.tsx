@@ -1495,7 +1495,7 @@ export default function RepartoPage() {
                        bg-primary-700 text-white shadow-lg transition-transform active:scale-[0.97]"
           >
             <ShoppingCart className="h-7 w-7" />
-            <span className="text-xl font-black">Nueva Venta</span>
+            <span className="text-xl font-black">NUEVA VENTA</span>
           </button>
 
           <button
@@ -1854,7 +1854,7 @@ export default function RepartoPage() {
             <button onClick={() => setView('active')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
               <ArrowLeft className="h-5 w-5" />
             </button>
-            <h1 className="text-xl font-black text-slate-900">Ventas del día</h1>
+            <h1 className="text-xl font-black text-slate-900">Ventas del reparto</h1>
           </div>
 
           {historial.length > 0 && (
