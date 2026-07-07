@@ -1498,35 +1498,38 @@ export default function RepartoPage() {
             <span className="text-xl font-black">NUEVA VENTA</span>
           </button>
 
-          <button
-            onClick={() => { setScanCart([]); setScanError(null); setView('agregar-stock'); }}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
-                       border-2 border-primary-200 bg-primary-50 text-primary-700
-                       transition-transform active:scale-[0.97]"
-          >
-            <Plus className="h-5 w-5" />
-            <span className="text-sm font-semibold">AGREGAR PRODUCTOS NUEVOS</span>
-          </button>
+          {/* Tres acciones secundarias en fila */}
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={() => { setScanCart([]); setScanError(null); setView('agregar-stock'); }}
+              className="flex flex-col items-center justify-center gap-1.5 rounded-2xl
+                         border-2 border-primary-200 bg-primary-50 py-4 text-primary-700
+                         transition-transform active:scale-[0.97]"
+            >
+              <Plus className="h-5 w-5" />
+              <span className="text-xs font-bold">PRODUCTOS</span>
+            </button>
 
-          <button
-            onClick={async () => { setView('historial'); await loadHistorial(); }}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
-                       border-2 border-slate-200 bg-white text-slate-700
-                       transition-transform active:scale-[0.97]"
-          >
-            <History className="h-5 w-5 text-slate-400" />
-            <span className="text-sm font-semibold">VENTAS DEL REPARTO</span>
-          </button>
+            <button
+              onClick={async () => { setView('historial'); await loadHistorial(); }}
+              className="flex flex-col items-center justify-center gap-1.5 rounded-2xl
+                         border-2 border-slate-200 bg-white py-4 text-slate-600
+                         transition-transform active:scale-[0.97]"
+            >
+              <History className="h-5 w-5" />
+              <span className="text-xs font-bold">VENTAS</span>
+            </button>
 
-          <button
-            onClick={prepareCierre}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
-                       border-2 border-red-200 bg-red-50 text-red-700
-                       transition-transform active:scale-[0.97]"
-          >
-            <X className="h-5 w-5" />
-            <span className="text-sm font-semibold">CERRAR REPARTO</span>
-          </button>
+            <button
+              onClick={prepareCierre}
+              className="flex flex-col items-center justify-center gap-1.5 rounded-2xl
+                         border-2 border-red-200 bg-red-50 py-4 text-red-600
+                         transition-transform active:scale-[0.97]"
+            >
+              <X className="h-5 w-5" />
+              <span className="text-xs font-bold">CERRAR</span>
+            </button>
+          </div>
         </div>
 
         {/* Stock en camioneta */}
