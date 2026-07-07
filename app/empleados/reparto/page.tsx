@@ -1424,6 +1424,8 @@ export default function RepartoPage() {
     const totalCargados  = tsItems.reduce((s, i) => s + i.quantity_assigned, 0);
     const totalVendidos  = tsItems.reduce((s, i) => s + i.quantity_sold,     0);
     const totalRestantes = totalCargados - totalVendidos;
+    const totalGenerado  = tsItems.reduce((s, i) => s + i.quantity_sold * i.unit_price, 0);
+    const totalRestanteMonto = tsItems.reduce((s, i) => s + (i.quantity_assigned - i.quantity_sold) * i.unit_price, 0);
 
     return (
       <div className="mx-auto max-w-md p-4 pt-6">
@@ -1436,7 +1438,7 @@ export default function RepartoPage() {
             </span>
           </div>
 
-          {/* Resumen stock */}
+          {/* Resumen stock — unidades */}
           <div className="mt-3 grid grid-cols-3 gap-2">
             {[
               { label: 'Cargados',  value: totalCargados,  color: 'text-slate-900' },
@@ -1449,6 +1451,24 @@ export default function RepartoPage() {
               </div>
             ))}
           </div>
+
+          {/* Resumen en plata */}
+          {totalGenerado > 0 && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2.5 text-center">
+                <p className="text-base font-black tabular-nums text-green-800">
+                  {formatCurrency(totalGenerado)}
+                </p>
+                <p className="text-[11px] text-green-600">Generado en ventas</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-center">
+                <p className="text-base font-black tabular-nums text-slate-700">
+                  {formatCurrency(totalRestanteMonto)}
+                </p>
+                <p className="text-[11px] text-slate-400">En camioneta</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Última venta */}
