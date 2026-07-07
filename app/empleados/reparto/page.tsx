@@ -206,14 +206,16 @@ export default function RepartoPage() {
   const lastSavedTimeRef = useRef<number>(0);
 
   // ── Nueva venta ─────────────────────────────────────────────
-  const [ventaStep,        setVentaStep]        = useState<VentaStep>('cliente');
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [cart,             setCart]             = useState<CartItem[]>([]);
-  const [payMethod,        setPayMethod]        = useState<DeliveryPaymentMethod>('cash');
-  const [ventaError,       setVentaError]       = useState<string | null>(null);
-  const [isConfirming,     setIsConfirming]     = useState(false);
-  const [lastVenta,        setLastVenta]        = useState<{ customer: Customer; total: number; method: DeliveryPaymentMethod } | null>(null);
-  const [customerSearch,   setCustomerSearch]   = useState('');
+  const [ventaStep,           setVentaStep]           = useState<VentaStep>('cliente');
+  const [selectedCustomer,   setSelectedCustomer]    = useState<Customer | null>(null);
+  const [cart,               setCart]               = useState<CartItem[]>([]);
+  const [payMethod,          setPayMethod]           = useState<DeliveryPaymentMethod>('cash');
+  const [ventaError,         setVentaError]          = useState<string | null>(null);
+  const [isConfirming,       setIsConfirming]        = useState(false);
+  const [lastVenta,          setLastVenta]           = useState<{ customer: Customer; total: number; method: DeliveryPaymentMethod } | null>(null);
+  const [customerSearch,     setCustomerSearch]      = useState('');
+  const [ventaProductSearch, setVentaProductSearch]  = useState('');
+  const [ventaProductPage,   setVentaProductPage]    = useState(0);
 
   // ── Historial ───────────────────────────────────────────────
   const [historial,        setHistorial]        = useState<DeliveryWithCustomer[]>([]);
@@ -646,6 +648,8 @@ export default function RepartoPage() {
     setVentaError(null);
     setVentaStep('cliente');
     setCustomerSearch('');
+    setVentaProductSearch('');
+    setVentaProductPage(0);
     setView('nueva-venta');
   }
 
@@ -835,6 +839,16 @@ export default function RepartoPage() {
       (p.brand ?? '').toLowerCase().includes(q)
     );
   }, [epProducts, productSearch]);
+
+  // ── Filtro de items del camión en el paso de venta ───────────
+  const filteredTsItems = useMemo(() => {
+    if (!ventaProductSearch.trim()) return tsItems;
+    const q = ventaProductSearch.toLowerCase();
+    return tsItems.filter(i => i.product_name.toLowerCase().includes(q));
+  }, [tsItems, ventaProductSearch]);
+
+  // Reset página al buscar en venta
+  useEffect(() => { setVentaProductPage(0); }, [ventaProductSearch]);
 
   // ── Cart total ───────────────────────────────────────────────
   const cartTotal = cart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
@@ -1649,9 +1663,15 @@ export default function RepartoPage() {
   // NUEVA VENTA — Sub-step: PRODUCTOS
   // ─────────────────────────────────────────────────────────────
   if (view === 'nueva-venta' && ventaStep === 'productos') {
+    const ventaTotalPages = Math.ceil(filteredTsItems.length / PRODS_PER_PAGE);
+    const ventaPageItems  = filteredTsItems.slice(
+      ventaProductPage * PRODS_PER_PAGE,
+      (ventaProductPage + 1) * PRODS_PER_PAGE,
+    );
+
     return (
       <div className="mx-auto max-w-md p-4 pb-36">
-        <div className="mb-5 flex items-center gap-3">
+        <div className="mb-4 flex items-center gap-3">
           <button onClick={() => setVentaStep('cliente')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -1661,60 +1681,113 @@ export default function RepartoPage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
-          {tsItems.map(item => {
-            const remaining = item.quantity_assigned - item.quantity_sold;
-            const inCart    = cart.find(c => c.epId === item.establishment_product_id);
-            return (
-              <div
-                key={item.id}
-                className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white ${
-                  remaining <= 0
-                    ? 'border-slate-100 opacity-40'
-                    : inCart
-                    ? 'border-primary-300 bg-primary-50'
-                    : 'border-slate-200'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-900">{item.product_name}</p>
-                  <p className="text-xs text-slate-400">
-                    {formatCurrency(item.unit_price)} · quedan {remaining}
-                  </p>
-                </div>
+        {/* Buscador */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={ventaProductSearch}
+            onChange={e => setVentaProductSearch(e.target.value)}
+            placeholder="Buscar producto…"
+            className="block w-full rounded-xl border border-slate-200 bg-white
+                       py-2.5 pl-9 pr-4 text-sm focus:border-primary-700 focus:outline-none"
+          />
+          {ventaProductSearch && (
+            <button
+              onClick={() => setVentaProductSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
 
-                {remaining > 0 && (
-                  <div className="flex items-center gap-2">
-                    {inCart ? (
-                      <>
-                        <button
-                          onClick={() => updateCartQty(item.establishment_product_id, inCart.quantity - 1)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white"
-                        >
-                          <Minus className="h-3.5 w-3.5" />
-                        </button>
-                        <span className="w-8 text-center text-base font-black tabular-nums">{inCart.quantity}</span>
-                        <button
-                          onClick={() => updateCartQty(item.establishment_product_id, Math.min(inCart.quantity + 1, remaining))}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => addToCart(item)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
+        {filteredTsItems.length === 0 ? (
+          <p className="py-10 text-center text-sm text-slate-400">
+            {tsItems.length === 0 ? 'No hay productos en el reparto' : 'No se encontraron productos'}
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-col gap-2">
+              {ventaPageItems.map(item => {
+                const remaining = item.quantity_assigned - item.quantity_sold;
+                const inCart    = cart.find(c => c.epId === item.establishment_product_id);
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white ${
+                      remaining <= 0
+                        ? 'border-slate-100 opacity-40'
+                        : inCart
+                        ? 'border-primary-300 bg-primary-50'
+                        : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-900">{item.product_name}</p>
+                      <p className="text-xs text-slate-400">
+                        {formatCurrency(item.unit_price)} · quedan {remaining}
+                      </p>
+                    </div>
+
+                    {remaining > 0 && (
+                      <div className="flex items-center gap-2">
+                        {inCart ? (
+                          <>
+                            <button
+                              onClick={() => updateCartQty(item.establishment_product_id, inCart.quantity - 1)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white"
+                            >
+                              <Minus className="h-3.5 w-3.5" />
+                            </button>
+                            <span className="w-8 text-center text-base font-black tabular-nums">{inCart.quantity}</span>
+                            <button
+                              onClick={() => updateCartQty(item.establishment_product_id, Math.min(inCart.quantity + 1, remaining))}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => addToCart(item)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
+                );
+              })}
+            </div>
+
+            {/* Paginación */}
+            {ventaTotalPages > 1 && (
+              <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                <button
+                  onClick={() => setVentaProductPage(p => Math.max(0, p - 1))}
+                  disabled={ventaProductPage === 0}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 font-semibold
+                             disabled:opacity-30 hover:bg-slate-50"
+                >
+                  ← Anterior
+                </button>
+                <span className="font-medium">
+                  {ventaProductPage + 1} / {ventaTotalPages}
+                </span>
+                <button
+                  onClick={() => setVentaProductPage(p => Math.min(ventaTotalPages - 1, p + 1))}
+                  disabled={ventaProductPage >= ventaTotalPages - 1}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 font-semibold
+                             disabled:opacity-30 hover:bg-slate-50"
+                >
+                  Siguiente →
+                </button>
               </div>
-            );
-          })}
-        </div>
+            )}
+          </>
+        )}
 
         {cart.length > 0 && (
           <div className="fixed bottom-0 left-0 right-0 border-t border-slate-100 bg-white/95 p-4 backdrop-blur-sm">
