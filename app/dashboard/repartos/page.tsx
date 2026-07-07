@@ -18,7 +18,7 @@ import type { Customer, Delivery, DeliveryItem, Profile, TravelStock, TravelStoc
 const RepartoMap = dynamic(() => import('@/components/ui/RepartoMap'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-80 items-center justify-center rounded-xl bg-slate-100">
+    <div className="flex h-64 items-center justify-center rounded-xl bg-slate-100">
       <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
     </div>
   ),
@@ -41,6 +41,8 @@ interface RepartoDetail extends Omit<TravelStock, 'assigned_profile'> {
   waypoints:  Waypoint[];
 }
 
+type Section = 'productos' | 'ventas' | 'mapa';
+
 // ─── Helpers ──────────────────────────────────────────────────
 const STATUS_LABELS: Record<string, string> = {
   active: 'Activo', completed: 'Completado', cancelled: 'Cancelado',
@@ -51,10 +53,10 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-slate-100 text-slate-500',
 };
 const PAY_CFG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  cash:       { label: 'Efectivo',        color: 'text-green-700 bg-green-50 border-green-200', icon: Banknote   },
-  transfer:   { label: 'Transferencia',   color: 'text-blue-700 bg-blue-50 border-blue-200',     icon: CreditCard },
-  pending_7:  { label: 'Pendiente 7d',    color: 'text-amber-700 bg-amber-50 border-amber-200',  icon: Clock      },
-  pending_15: { label: 'Pendiente 15d',   color: 'text-orange-700 bg-orange-50 border-orange-200', icon: Clock   },
+  cash:       { label: 'Efectivo',        color: 'text-green-700 bg-green-50 border-green-200',    icon: Banknote   },
+  transfer:   { label: 'Transferencia',   color: 'text-blue-700 bg-blue-50 border-blue-200',        icon: CreditCard },
+  pending_7:  { label: 'Pendiente 7d',   color: 'text-amber-700 bg-amber-50 border-amber-200',     icon: Clock      },
+  pending_15: { label: 'Pendiente 15d',  color: 'text-orange-700 bg-orange-50 border-orange-200',  icon: Clock      },
 };
 
 function fDate(s: string) {
@@ -68,49 +70,37 @@ function payLabel(m: string | null): string {
   return m ? (PAY_CFG[m]?.label ?? m) : 'Sin método';
 }
 
-// ─── Resumen de ventas por método ─────────────────────────────
-function PaySummary({ deliveries }: { deliveries: RepartoDetail['deliveries'] }) {
-  const totals: Record<string, number> = {};
-  for (const d of deliveries) {
-    const k = d.payment_method ?? 'pending_7';
-    totals[k] = (totals[k] ?? 0) + d.total_amount;
-  }
-  // Cobrado/pendiente basado en payment_status (no en el método de pago)
-  const cobrado   = deliveries.filter(d => d.payment_status === 'paid').reduce((s, d) => s + d.total_amount, 0);
-  const pendiente = deliveries.filter(d => d.payment_status === 'pending').reduce((s, d) => s + d.total_amount, 0);
-  const total     = cobrado + pendiente;
-
+// ─── Sub-sección colapsable ────────────────────────────────────
+function CollapseSection({
+  title, icon: Icon, count, open, onToggle, children,
+}: {
+  title: string;
+  icon: React.ElementType;
+  count?: number;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rounded-xl bg-slate-50 px-4 py-3 space-y-2">
-      {/* Barra de progreso cobrado/pendiente */}
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-bold text-slate-900">{formatCurrency(total)}</span>
-        <span className="text-xs text-slate-500">{deliveries.length} entrega{deliveries.length !== 1 ? 's' : ''}</span>
-      </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
-        <div
-          className="h-full rounded-full bg-green-500 transition-all"
-          style={{ width: total > 0 ? `${(cobrado / total) * 100}%` : '0%' }}
-        />
-      </div>
-      <div className="flex gap-4 text-xs">
-        <span className="font-semibold text-green-700">Cobrado {formatCurrency(cobrado)}</span>
-        {pendiente > 0 && <span className="font-semibold text-amber-600">Pendiente {formatCurrency(pendiente)}</span>}
-      </div>
-      {/* Desglose por método */}
-      <div className="flex flex-wrap gap-1.5 pt-1">
-        {Object.entries(totals).map(([method, amt]) => {
-          const cfg = PAY_CFG[method];
-          if (!cfg) return null;
-          const Icon = cfg.icon;
-          return (
-            <span key={method} className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cfg.color}`}>
-              <Icon className="h-3 w-3" />
-              {cfg.label} {formatCurrency(amt)}
+    <div className="overflow-hidden rounded-xl border border-slate-100">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between bg-slate-50 px-4 py-3 text-left hover:bg-slate-100 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-slate-400" />
+          <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</span>
+          {count !== undefined && (
+            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+              {count}
             </span>
-          );
-        })}
-      </div>
+          )}
+        </div>
+        {open
+          ? <ChevronUp className="h-4 w-4 text-slate-400" />
+          : <ChevronDown className="h-4 w-4 text-slate-400" />}
+      </button>
+      {open && <div className="px-4 py-3">{children}</div>}
     </div>
   );
 }
@@ -126,9 +116,11 @@ export default function RepartosPage() {
   const [loading,       setLoading]       = useState(true);
   const [expanded,      setExpanded]      = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
+  // Secciones abiertas dentro del reparto expandido
+  const [openSections,  setOpenSections]  = useState<Set<Section>>(new Set<Section>(['ventas']));
 
   // Edición de precio
-  const [editPrice, setEditPrice]   = useState<{ itemId: string; epId: string | null; value: string } | null>(null);
+  const [editPrice,  setEditPrice]  = useState<{ itemId: string; epId: string | null; value: string } | null>(null);
   const [savingPrice, setSavingPrice] = useState(false);
 
   // ── Lista de repartos + perfiles ──────────────────────────
@@ -180,8 +172,17 @@ export default function RepartosPage() {
     if (expanded === tsId) { setExpanded(null); return; }
     setExpanded(tsId);
     setEditPrice(null);
+    setOpenSections(new Set<Section>(['ventas'])); // abre ventas por defecto
     const rep = repartos.find(r => r.id === tsId);
     if (rep && rep.items.length === 0) loadDetail(tsId);
+  }
+
+  function toggleSection(s: Section) {
+    setOpenSections(prev => {
+      const next = new Set(prev);
+      next.has(s) ? next.delete(s) : next.add(s);
+      return next;
+    });
   }
 
   // ── Guardar precio ────────────────────────────────────────
@@ -190,15 +191,9 @@ export default function RepartosPage() {
     const price = parseFloat(editPrice.value.replace(',', '.'));
     if (isNaN(price) || price <= 0) return;
     setSavingPrice(true);
-    await supabase
-      .from('travel_stock_items')
-      .update({ unit_price: price })
-      .eq('id', editPrice.itemId);
+    await supabase.from('travel_stock_items').update({ unit_price: price }).eq('id', editPrice.itemId);
     if (editPrice.epId) {
-      await supabase
-        .from('establishment_products')
-        .update({ price })
-        .eq('id', editPrice.epId);
+      await supabase.from('establishment_products').update({ price }).eq('id', editPrice.epId);
     }
     setRepartos(prev => prev.map(r => ({
       ...r,
@@ -207,18 +202,6 @@ export default function RepartosPage() {
     setSavingPrice(false);
     setEditPrice(null);
   }
-
-  // ── Estadísticas globales ─────────────────────────────────
-  const globalStats = useMemo(() => {
-    let totalVentas = 0, totalPendiente = 0;
-    for (const r of repartos) {
-      for (const d of r.deliveries) {
-        totalVentas += d.total_amount;
-        if (d.payment_status === 'pending') totalPendiente += d.total_amount;
-      }
-    }
-    return { totalVentas, totalPendiente, count: repartos.length };
-  }, [repartos]);
 
   if (loading) {
     return (
@@ -229,34 +212,16 @@ export default function RepartosPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
 
       {/* Encabezado */}
       <div className="flex items-center gap-3">
         <Truck className="h-6 w-6 text-primary-700" />
         <h1 className="text-xl font-bold text-slate-900">Historial de repartos</h1>
         <span className="rounded-full bg-primary-100 px-2.5 py-0.5 text-xs font-semibold text-primary-700">
-          {globalStats.count}
+          {repartos.length}
         </span>
       </div>
-
-      {/* Stats globales (solo si hay repartos con detalle cargado) */}
-      {globalStats.totalVentas > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="text-xs font-medium text-slate-500">Total vendido</p>
-            <p className="mt-1 text-xl font-black text-slate-900">{formatCurrency(globalStats.totalVentas)}</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="text-xs font-medium text-slate-500">Cobrado</p>
-            <p className="mt-1 text-xl font-black text-green-700">{formatCurrency(globalStats.totalVentas - globalStats.totalPendiente)}</p>
-          </div>
-          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 col-span-2 sm:col-span-1">
-            <p className="text-xs font-medium text-amber-600">Pendiente de cobro</p>
-            <p className="mt-1 text-xl font-black text-amber-700">{formatCurrency(globalStats.totalPendiente)}</p>
-          </div>
-        </div>
-      )}
 
       {repartos.length === 0 && (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">
@@ -270,14 +235,17 @@ export default function RepartosPage() {
         {repartos.map(rep => {
           const isOpen      = expanded === rep.id;
           const isLoadingDt = detailLoading === rep.id;
-          const totalVendido = rep.deliveries.reduce((s, d) => s + d.total_amount, 0);
-          const pendiente    = rep.deliveries.filter(d => d.payment_status === 'pending').reduce((s, d) => s + d.total_amount, 0);
           const assignedProfile = profiles.find(p => p.id === rep.assigned_to);
+
+          // Stats del reparto (solo cuando está cargado el detalle)
+          const totalVendido = rep.deliveries.reduce((s, d) => s + d.total_amount, 0);
+          const cobrado      = rep.deliveries.filter(d => d.payment_status === 'paid').reduce((s, d) => s + d.total_amount, 0);
+          const pendiente    = rep.deliveries.filter(d => d.payment_status === 'pending').reduce((s, d) => s + d.total_amount, 0);
 
           return (
             <div key={rep.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 
-              {/* Cabecera */}
+              {/* ── Cabecera ── */}
               <button
                 onClick={() => toggle(rep.id)}
                 className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-slate-50 transition-colors"
@@ -300,13 +268,10 @@ export default function RepartosPage() {
                   </div>
                   <p className="mt-0.5 text-xs text-slate-400">{fDate(rep.created_at)}</p>
                   {rep.deliveries.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
-                      <span className="text-slate-500">{rep.deliveries.length} entregas</span>
-                      <span className="font-semibold text-slate-700">{formatCurrency(totalVendido)}</span>
-                      {pendiente > 0 && (
-                        <span className="font-semibold text-amber-600">· {formatCurrency(pendiente)} pend.</span>
-                      )}
-                    </div>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      {rep.deliveries.length} entrega{rep.deliveries.length !== 1 ? 's' : ''} · {formatCurrency(totalVendido)}
+                      {pendiente > 0 && <span className="ml-1 font-semibold text-amber-600">· {formatCurrency(pendiente)} pend.</span>}
+                    </p>
                   )}
                 </div>
                 <div className="shrink-0 text-slate-400">
@@ -316,113 +281,152 @@ export default function RepartosPage() {
                 </div>
               </button>
 
-              {/* Detalle */}
+              {/* ── Detalle ── */}
               {isOpen && !isLoadingDt && (
-                <div className="border-t border-slate-100 px-5 pb-5 pt-4 space-y-5">
+                <div className="border-t border-slate-100 px-5 pb-5 pt-4 space-y-3">
 
-                  {/* ── Productos cargados con precios editables ── */}
-                  {rep.items.length > 0 && (
-                    <div>
-                      <div className="mb-2 flex items-center gap-2">
-                        <Package className="h-4 w-4 text-slate-400" />
-                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                          Productos cargados ({rep.items.length})
-                        </p>
+                  {/* ── Mini stats dentro de la card ── */}
+                  {rep.deliveries.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-center">
+                        <p className="text-xs text-slate-400">Total</p>
+                        <p className="text-sm font-black text-slate-800 tabular-nums">{formatCurrency(totalVendido)}</p>
                       </div>
-                      <div className="overflow-hidden rounded-xl border border-slate-100">
-                        {rep.items.map((item, i) => {
-                          const isEditing = editPrice?.itemId === item.id;
-                          return (
-                            <div key={item.id}
-                              className={`px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}>
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm font-medium text-slate-800">{item.product_name}</p>
-                                  <div className="mt-0.5 flex items-center gap-2">
-                                    {isEditing ? (
-                                      <span className="text-xs font-bold text-primary-700">
-                                        ${editPrice.value || '0'}
-                                      </span>
-                                    ) : (
-                                      <button
-                                        onClick={() => setEditPrice({
-                                          itemId: item.id,
-                                          epId:   item.establishment_product_id,
-                                          value:  String(item.unit_price),
-                                        })}
-                                        className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-primary-700 transition-colors"
-                                      >
-                                        {formatCurrency(item.unit_price)} c/u
-                                        <Pencil className="h-3 w-3 opacity-50" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="shrink-0 text-right">
-                                  <p className="text-sm font-bold text-slate-900">
-                                    {item.quantity_sold} <span className="font-normal text-slate-400">/ {item.quantity_assigned}</span>
-                                  </p>
-                                  <p className="text-[10px] text-slate-400">vendido / cargado</p>
-                                </div>
-                              </div>
-
-                              {/* NumPad inline para editar precio */}
-                              {isEditing && (
-                                <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 p-3">
-                                  <div className="mb-2 flex items-center justify-between">
-                                    <span className="text-xs font-semibold text-primary-700">Nuevo precio</span>
-                                    <div className="flex gap-2">
-                                      <button
-                                        onClick={savePrice}
-                                        disabled={savingPrice || !editPrice.value || parseFloat(editPrice.value) <= 0}
-                                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-700 text-white disabled:opacity-50"
-                                      >
-                                        {savingPrice ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                                      </button>
-                                      <button
-                                        onClick={() => setEditPrice(null)}
-                                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500"
-                                      >
-                                        <X className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <NumPad
-                                    value={editPrice.value}
-                                    onChange={v => setEditPrice(prev => prev ? { ...prev, value: v } : prev)}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                      <div className="rounded-xl border border-green-100 bg-green-50 px-3 py-2.5 text-center">
+                        <p className="text-xs text-green-500">Cobrado</p>
+                        <p className="text-sm font-black text-green-700 tabular-nums">{formatCurrency(cobrado)}</p>
+                      </div>
+                      <div className={`rounded-xl px-3 py-2.5 text-center ${
+                        pendiente > 0
+                          ? 'border border-amber-100 bg-amber-50'
+                          : 'border border-slate-100 bg-slate-50'
+                      }`}>
+                        <p className={`text-xs ${pendiente > 0 ? 'text-amber-500' : 'text-slate-400'}`}>Pendiente</p>
+                        <p className={`text-sm font-black tabular-nums ${pendiente > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
+                          {formatCurrency(pendiente)}
+                        </p>
                       </div>
                     </div>
                   )}
 
-                  {/* ── Ventas del reparto ── */}
-                  {rep.deliveries.length > 0 && (
+                  {/* ── Barra de progreso cobro ── */}
+                  {rep.deliveries.length > 0 && totalVendido > 0 && (
                     <div>
-                      <div className="mb-2 flex items-center gap-2">
-                        <Users className="h-4 w-4 text-slate-400" />
-                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                          Ventas del reparto ({rep.deliveries.length})
-                        </p>
+                      <div className="mb-1 flex flex-wrap gap-1.5">
+                        {(() => {
+                          const methodTotals: Record<string, number> = {};
+                          for (const d of rep.deliveries) {
+                            const k = d.payment_method ?? 'pending_7';
+                            methodTotals[k] = (methodTotals[k] ?? 0) + d.total_amount;
+                          }
+                          return Object.entries(methodTotals).map(([method, amt]) => {
+                            const cfg = PAY_CFG[method];
+                            if (!cfg) return null;
+                            const Icon = cfg.icon;
+                            return (
+                              <span key={method} className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cfg.color}`}>
+                                <Icon className="h-3 w-3" />
+                                {cfg.label} {formatCurrency(amt)}
+                              </span>
+                            );
+                          });
+                        })()}
                       </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-green-500 transition-all"
+                          style={{ width: `${(cobrado / totalVendido) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
 
-                      {/* Resumen de cobros */}
-                      <PaySummary deliveries={rep.deliveries} />
+                  {/* ── Sección: Productos cargados ── */}
+                  {rep.items.length > 0 && (
+                    <CollapseSection
+                      title="Productos cargados"
+                      icon={Package}
+                      count={rep.items.length}
+                      open={openSections.has('productos')}
+                      onToggle={() => toggleSection('productos')}
+                    >
+                      <div className="overflow-y-auto" style={{ maxHeight: 260 }}>
+                        <div className="divide-y divide-slate-50">
+                          {rep.items.map(item => {
+                            const isEditing = editPrice?.itemId === item.id;
+                            return (
+                              <div key={item.id} className="py-2.5 first:pt-0 last:pb-0">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-medium text-slate-800">{item.product_name}</p>
+                                    <div className="mt-0.5">
+                                      {isEditing ? (
+                                        <span className="text-xs font-bold text-primary-700">${editPrice.value || '0'}</span>
+                                      ) : (
+                                        <button
+                                          onClick={() => setEditPrice({ itemId: item.id, epId: item.establishment_product_id, value: String(item.unit_price) })}
+                                          className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-primary-700 transition-colors"
+                                        >
+                                          {formatCurrency(item.unit_price)} c/u
+                                          <Pencil className="h-3 w-3 opacity-50" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <p className="text-sm font-bold text-slate-900">
+                                      {item.quantity_sold} <span className="font-normal text-slate-400">/ {item.quantity_assigned}</span>
+                                    </p>
+                                    <p className="text-[10px] text-slate-400">vendido / cargado</p>
+                                  </div>
+                                </div>
+                                {isEditing && (
+                                  <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 p-3">
+                                    <div className="mb-2 flex items-center justify-between">
+                                      <span className="text-xs font-semibold text-primary-700">Nuevo precio</span>
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={savePrice}
+                                          disabled={savingPrice || !editPrice.value || parseFloat(editPrice.value) <= 0}
+                                          className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-700 text-white disabled:opacity-50"
+                                        >
+                                          {savingPrice ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                        </button>
+                                        <button
+                                          onClick={() => setEditPrice(null)}
+                                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500"
+                                        >
+                                          <X className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <NumPad value={editPrice.value} onChange={v => setEditPrice(prev => prev ? { ...prev, value: v } : prev)} />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </CollapseSection>
+                  )}
 
-                      {/* Detalle por entrega */}
-                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-100">
-                        {rep.deliveries.map((d, i) => {
-                          const cfg = PAY_CFG[d.payment_method ?? ''];
+                  {/* ── Sección: Ventas ── */}
+                  {rep.deliveries.length > 0 && (
+                    <CollapseSection
+                      title="Ventas del reparto"
+                      icon={Users}
+                      count={rep.deliveries.length}
+                      open={openSections.has('ventas')}
+                      onToggle={() => toggleSection('ventas')}
+                    >
+                      <div className="overflow-y-auto divide-y divide-slate-50" style={{ maxHeight: 320 }}>
+                        {rep.deliveries.map(d => {
+                          const cfg  = PAY_CFG[d.payment_method ?? ''];
                           const Icon = cfg?.icon ?? DollarSign;
                           return (
-                            <div key={d.id}
-                              className={`px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}>
+                            <div key={d.id} className="py-3 first:pt-0 last:pb-0">
                               <div className="flex items-start gap-3">
-                                {/* Ícono de método */}
                                 <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${cfg?.color ?? 'bg-slate-50 border-slate-200 text-slate-400'}`}>
                                   <Icon className="h-4 w-4" />
                                 </div>
@@ -437,14 +441,11 @@ export default function RepartosPage() {
                                         <MapPin className="h-3 w-3" />{d.customer.barrio}
                                       </span>
                                     )}
-                                    <span className={`text-[11px] font-semibold ${
-                                      d.payment_status === 'paid' ? 'text-green-600' : 'text-amber-600'
-                                    }`}>
-                                      {payLabel(d.payment_method)}
+                                    <span className={`text-[11px] font-semibold ${d.payment_status === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
+                                      {d.payment_status === 'paid' ? '✓ Cobrado' : payLabel(d.payment_method)}
                                     </span>
                                     <span className="text-[11px] text-slate-400">{fDate(d.created_at)}</span>
                                   </div>
-                                  {/* Items de la entrega */}
                                   {d.items && d.items.length > 0 && (
                                     <div className="mt-1.5 space-y-0.5">
                                       {d.items.map(it => (
@@ -461,10 +462,10 @@ export default function RepartosPage() {
                           );
                         })}
                       </div>
-                    </div>
+                    </CollapseSection>
                   )}
 
-                  {/* ── Mapa ── */}
+                  {/* ── Sección: Mapa ── */}
                   {(() => {
                     const routeWps = rep.waypoints.filter(w => !w.type || w.type === 'route');
                     const delivWps = rep.waypoints
@@ -478,35 +479,29 @@ export default function RepartosPage() {
                       }));
                     const hasGps = routeWps.length > 0 || delivWps.length > 0;
                     return (
-                      <div>
-                        <div className="mb-2 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4 text-slate-400" />
-                            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Recorrido</p>
-                          </div>
-                          {hasGps && (
-                            <span className="text-[11px] text-slate-400">
-                              {routeWps.length} pts ruta · {delivWps.length} ventas
-                            </span>
-                          )}
-                        </div>
+                      <CollapseSection
+                        title="Recorrido"
+                        icon={MapPin}
+                        count={hasGps ? routeWps.length : undefined}
+                        open={openSections.has('mapa')}
+                        onToggle={() => toggleSection('mapa')}
+                      >
                         {hasGps ? (
-                          <div className="h-80 overflow-hidden rounded-xl border border-slate-200">
+                          <div className="h-64 overflow-hidden rounded-xl border border-slate-200">
                             <RepartoMap waypoints={routeWps} deliveryPoints={delivWps} />
                           </div>
                         ) : (
-                          <div className="flex h-32 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-slate-50">
-                            <MapPin className="h-7 w-7 text-slate-300" />
-                            <p className="text-sm text-slate-400">Sin datos de GPS</p>
-                            <p className="text-xs text-slate-300">El empleado debe permitir ubicación en el celular</p>
+                          <div className="flex h-24 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-slate-50">
+                            <MapPin className="h-6 w-6 text-slate-300" />
+                            <p className="text-xs text-slate-400">Sin datos de GPS para este reparto</p>
                           </div>
                         )}
-                      </div>
+                      </CollapseSection>
                     );
                   })()}
 
                   {rep.items.length === 0 && rep.deliveries.length === 0 && (
-                    <p className="text-center text-sm text-slate-400">Sin datos para este reparto</p>
+                    <p className="text-center text-sm text-slate-400 py-4">Sin datos para este reparto</p>
                   )}
                 </div>
               )}
