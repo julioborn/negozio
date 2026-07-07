@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Minus, Plus, X } from 'lucide-react';
+import { Minus, Plus, X, Zap, ZapOff } from 'lucide-react';
 
 interface Props {
   onScan:  (code: string) => void;
@@ -17,8 +17,10 @@ export default function CameraScanner({ onScan, onClose }: Props) {
   const [hint,     setHint]     = useState('Iniciando cámara…');
   const [focusing, setFocusing] = useState(false);
   const [tapRing,  setTapRing]  = useState<{ x: number; y: number } | null>(null);
-  const [zoom,     setZoom]     = useState(1);
-  const [zoomCaps, setZoomCaps] = useState<{ min: number; max: number } | null>(null);
+  const [zoom,      setZoom]      = useState(1);
+  const [zoomCaps,  setZoomCaps]  = useState<{ min: number; max: number } | null>(null);
+  const [torch,     setTorch]     = useState(false);
+  const [hasTorch,  setHasTorch]  = useState(false);
 
   // Cerrar teclado al montar — blur inmediato y con delay por si Android lo reabre
   useEffect(() => {
@@ -60,9 +62,12 @@ export default function CameraScanner({ onScan, onClose }: Props) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const caps = (track as any).getCapabilities?.() ?? {};
 
-              // Detectar si soporta zoom (Android principalmente)
+              // Detectar capacidades
               if (caps.zoom) {
                 setZoomCaps({ min: caps.zoom.min ?? 1, max: Math.min(caps.zoom.max ?? 8, 8) });
+              }
+              if (caps.torch) {
+                setHasTorch(true);
               }
 
               // Intentar macro: focusDistance al mínimo + continuous
@@ -134,6 +139,16 @@ export default function CameraScanner({ onScan, onClose }: Props) {
     setHint('Apuntá al código · tocá para enfocar');
   }
 
+  async function toggleTorch() {
+    const track = getTrack();
+    if (!track) return;
+    const next = !torch;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next } as never] });
+      setTorch(next);
+    } catch { /* no soportado */ }
+  }
+
   async function changeZoom(delta: number) {
     if (!zoomCaps) return;
     const next = Math.min(zoomCaps.max, Math.max(zoomCaps.min, parseFloat((zoom + delta).toFixed(1))));
@@ -150,9 +165,22 @@ export default function CameraScanner({ onScan, onClose }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 text-white">
         <p className="text-base font-semibold">Escanear código de barras</p>
-        <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 active:bg-white/20">
-          <X className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {hasTorch && (
+            <button
+              onPointerDown={(e) => { e.preventDefault(); toggleTorch(); }}
+              className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                torch ? 'bg-yellow-400 text-black' : 'bg-white/10 text-white active:bg-white/20'
+              }`}
+              title="Flash"
+            >
+              {torch ? <Zap className="h-5 w-5" /> : <ZapOff className="h-5 w-5" />}
+            </button>
+          )}
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 active:bg-white/20">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
       {/* Video / error */}
