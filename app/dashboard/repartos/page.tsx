@@ -465,34 +465,42 @@ export default function RepartosPage() {
                     </CollapseSection>
                   )}
 
-                  {/* ── Sección: Mapa ── */}
+                  {/* ── Sección: Mapa de ventas ── */}
                   {(() => {
-                    const routeWps = rep.waypoints.filter(w => !w.type || w.type === 'route');
+                    // Cruza waypoints de entrega con el estado de pago real de la venta
                     const delivWps = rep.waypoints
                       .filter(w => w.type === 'delivery')
-                      .map(w => ({
-                        lat:           w.lat,
-                        lng:           w.lng,
-                        customer_name: w.customer_name ?? 'Venta',
-                        total_amount:  w.total_amount ?? 0,
-                        created_at:    w.recorded_at,
-                      }));
-                    const hasGps = routeWps.length > 0 || delivWps.length > 0;
+                      .map(w => {
+                        // Buscar la venta correspondiente por nombre de cliente
+                        const match = rep.deliveries.find(
+                          d => d.customer.name === w.customer_name
+                        );
+                        return {
+                          lat:            w.lat,
+                          lng:            w.lng,
+                          customer_name:  w.customer_name ?? 'Venta',
+                          total_amount:   w.total_amount ?? 0,
+                          created_at:     w.recorded_at,
+                          payment_status: (match?.payment_status ?? 'paid') as 'paid' | 'pending',
+                          payment_method: match?.payment_method ?? null,
+                        };
+                      });
+                    const hasPoints = delivWps.length > 0;
                     return (
                       <CollapseSection
-                        title="Recorrido"
+                        title="Ventas en el mapa"
                         icon={MapPin}
                         open={openSections.has('mapa')}
                         onToggle={() => toggleSection('mapa')}
                       >
-                        {hasGps ? (
+                        {hasPoints ? (
                           <div className="h-64 overflow-hidden rounded-xl border border-slate-200">
-                            <RepartoMap waypoints={routeWps} deliveryPoints={delivWps} />
+                            <RepartoMap deliveryPoints={delivWps} />
                           </div>
                         ) : (
                           <div className="flex h-24 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-200 bg-slate-50">
                             <MapPin className="h-6 w-6 text-slate-300" />
-                            <p className="text-xs text-slate-400">Sin datos de GPS para este reparto</p>
+                            <p className="text-xs text-slate-400">Sin puntos de venta registrados</p>
                           </div>
                         )}
                       </CollapseSection>
