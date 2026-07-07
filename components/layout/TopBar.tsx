@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 
 import {
   BoxesIcon, DollarSign, Home, LogOut, Menu,
@@ -68,12 +68,9 @@ export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
   const [menuOpen,    setMenuOpen]    = useState(false);
   const [refreshing,  setRefreshing]  = useState(false);
   const { user, signOut } = useAuth();
-  const router = useRouter();
-
-  async function handleRefresh() {
+  function handleRefresh() {
     setRefreshing(true);
-    router.refresh();
-    setTimeout(() => setRefreshing(false), 800);
+    window.location.reload();
   }
   const establishment = useAuthStore((s) => s.establishment);
   const pathname = usePathname();
