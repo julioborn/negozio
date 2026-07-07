@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Minus, Plus, X } from 'lucide-react';
 
 interface Props {
   onScan:  (code: string) => void;
@@ -13,14 +13,18 @@ export default function CameraScanner({ onScan, onClose }: Props) {
   const onScanRef = useRef(onScan);
   useEffect(() => { onScanRef.current = onScan; });
 
-  const [error,     setError]     = useState<string | null>(null);
-  const [hint,      setHint]      = useState('Iniciando cámara…');
-  const [focusing,  setFocusing]  = useState(false);
-  const [tapRing,   setTapRing]   = useState<{ x: number; y: number } | null>(null);
+  const [error,    setError]    = useState<string | null>(null);
+  const [hint,     setHint]     = useState('Iniciando cámara…');
+  const [focusing, setFocusing] = useState(false);
+  const [tapRing,  setTapRing]  = useState<{ x: number; y: number } | null>(null);
+  const [zoom,     setZoom]     = useState(1);
+  const [zoomCaps, setZoomCaps] = useState<{ min: number; max: number } | null>(null);
 
-  // Cierra el teclado al montar el overlay
+  // Cerrar teclado al montar — blur inmediato y con delay por si Android lo reabre
   useEffect(() => {
     (document.activeElement as HTMLElement | null)?.blur();
+    const t = setTimeout(() => (document.activeElement as HTMLElement | null)?.blur(), 300);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
@@ -33,16 +37,9 @@ export default function CameraScanner({ onScan, onClose }: Props) {
         if (stopped) return;
 
         const reader = new BrowserMultiFormatReader();
-        setHint('Apuntá al código · tocá para enfocar');
 
         const controls = await reader.decodeFromConstraints(
-          {
-            video: {
-              facingMode: { ideal: 'environment' },
-              width:      { ideal: 1280 },
-              height:     { ideal: 720 },
-            },
-          },
+          { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
           videoRef.current!,
           (result) => {
             if (stopped || !result) return;
@@ -54,9 +51,39 @@ export default function CameraScanner({ onScan, onClose }: Props) {
         stopFn = () => controls.stop();
         if (stopped) { controls.stop(); return; }
 
-        // Intentar autofocus continuo al arrancar
-        await trySetFocus('continuous');
+        // Configurar foco y zoom según capacidades del dispositivo
+        const video = videoRef.current;
+        if (video?.srcObject instanceof MediaStream) {
+          const [track] = (video.srcObject as MediaStream).getVideoTracks();
+          if (track) {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const caps = (track as any).getCapabilities?.() ?? {};
 
+              // Detectar si soporta zoom (Android principalmente)
+              if (caps.zoom) {
+                setZoomCaps({ min: caps.zoom.min ?? 1, max: Math.min(caps.zoom.max ?? 8, 8) });
+              }
+
+              // Intentar macro: focusDistance al mínimo + continuous
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const advanced: Record<string, any> = {};
+              if (caps.focusMode?.includes?.('continuous')) {
+                advanced.focusMode = 'continuous';
+              }
+              if (caps.focusDistance) {
+                // focusDistance en metros; min = más cerca (macro)
+                advanced.focusMode    = 'manual';
+                advanced.focusDistance = caps.focusDistance.min ?? 0;
+              }
+              if (Object.keys(advanced).length > 0) {
+                await track.applyConstraints({ advanced: [advanced] });
+              }
+            } catch { /* capacidad no soportada */ }
+          }
+        }
+
+        setHint('Apuntá al código · tocá para enfocar');
       } catch (e: unknown) {
         if (stopped) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -66,50 +93,56 @@ export default function CameraScanner({ onScan, onClose }: Props) {
             : 'No se pudo acceder a la cámara.'
         );
       }
-
-      return () => stopFn?.();
     }
 
     start();
+    return () => { stopped = true; stopFn?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Obtiene el track de video activo
   function getTrack(): MediaStreamTrack | null {
     const video = videoRef.current;
     if (!video?.srcObject || !(video.srcObject instanceof MediaStream)) return null;
     return (video.srcObject as MediaStream).getVideoTracks()[0] ?? null;
   }
 
-  // Intenta aplicar un modo de foco; silencia errores si no es soportado
-  async function trySetFocus(mode: string) {
+  async function tryFocus(mode: string) {
     const track = getTrack();
     if (!track) return;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const caps = (track as any).getCapabilities?.() ?? {};
       if (caps.focusMode?.includes?.(mode)) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await track.applyConstraints({ advanced: [{ focusMode: mode } as any] });
+        await track.applyConstraints({ advanced: [{ focusMode: mode } as never] });
       }
     } catch { /* no soportado */ }
   }
 
-  // Tap-to-focus: ciclo auto → continuous para forzar reenfoque
+  // Tap-to-focus: ciclo auto → continuous
   async function handleTap(e: React.PointerEvent<HTMLVideoElement>) {
-    e.preventDefault(); // evita que Android abra el teclado
+    e.preventDefault();
     if (focusing) return;
     const rect = e.currentTarget.getBoundingClientRect();
     setTapRing({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     setTimeout(() => setTapRing(null), 700);
-
     setFocusing(true);
     setHint('Enfocando…');
-    await trySetFocus('auto');
-    await new Promise(r => setTimeout(r, 400));
-    await trySetFocus('continuous');
+    await tryFocus('auto');
+    await new Promise(r => setTimeout(r, 500));
+    await tryFocus('continuous');
     setFocusing(false);
     setHint('Apuntá al código · tocá para enfocar');
+  }
+
+  async function changeZoom(delta: number) {
+    if (!zoomCaps) return;
+    const next = Math.min(zoomCaps.max, Math.max(zoomCaps.min, parseFloat((zoom + delta).toFixed(1))));
+    const track = getTrack();
+    if (!track) return;
+    try {
+      await track.applyConstraints({ advanced: [{ zoom: next } as never] });
+      setZoom(next);
+    } catch { /* no soportado */ }
   }
 
   return (
@@ -117,10 +150,7 @@ export default function CameraScanner({ onScan, onClose }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 text-white">
         <p className="text-base font-semibold">Escanear código de barras</p>
-        <button
-          onClick={onClose}
-          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 active:bg-white/20"
-        >
+        <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 active:bg-white/20">
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -130,12 +160,7 @@ export default function CameraScanner({ onScan, onClose }: Props) {
         {error ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
             <p className="text-white/80">{error}</p>
-            <button
-              onClick={onClose}
-              className="rounded-xl bg-white/20 px-6 py-2.5 text-sm font-semibold text-white"
-            >
-              Cerrar
-            </button>
+            <button onClick={onClose} className="rounded-xl bg-white/20 px-6 py-2.5 text-sm font-semibold text-white">Cerrar</button>
           </div>
         ) : (
           <>
@@ -150,15 +175,11 @@ export default function CameraScanner({ onScan, onClose }: Props) {
               onPointerDown={handleTap}
             />
 
-            {/* Anillo de tap-to-focus */}
+            {/* Anillo visual tap-to-focus */}
             {tapRing && (
               <div
-                className="pointer-events-none absolute rounded-full border-2 border-yellow-300 opacity-80"
-                style={{
-                  width: 64, height: 64,
-                  left: tapRing.x - 32, top: tapRing.y - 32,
-                  animation: 'ping 0.6s ease-out forwards',
-                }}
+                className="pointer-events-none absolute rounded-full border-2 border-yellow-300"
+                style={{ width: 64, height: 64, left: tapRing.x - 32, top: tapRing.y - 32, animation: 'ping 0.6s ease-out forwards' }}
               />
             )}
 
@@ -166,11 +187,7 @@ export default function CameraScanner({ onScan, onClose }: Props) {
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <div
                 className="absolute inset-0 bg-black/50"
-                style={{
-                  clipPath:
-                    'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%, ' +
-                    '12% 25%, 12% 75%, 88% 75%, 88% 25%, 12% 25%)',
-                }}
+                style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%, 12% 25%, 12% 75%, 88% 75%, 88% 25%, 12% 25%)' }}
               />
               <div className="relative h-44 w-72 rounded-xl">
                 {[
@@ -185,6 +202,27 @@ export default function CameraScanner({ onScan, onClose }: Props) {
               </div>
               <p className="mt-4 text-sm text-white/70">{hint}</p>
             </div>
+
+            {/* Control de zoom — solo aparece si el dispositivo lo soporta */}
+            {zoomCaps && (
+              <div className="absolute bottom-8 left-0 right-0 flex items-center justify-center gap-5">
+                <button
+                  onPointerDown={(e) => { e.preventDefault(); changeZoom(-0.5); }}
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-white active:bg-black/80"
+                >
+                  <Minus className="h-5 w-5" />
+                </button>
+                <span className="w-14 text-center text-base font-bold text-white tabular-nums">
+                  {zoom.toFixed(1)}×
+                </span>
+                <button
+                  onPointerDown={(e) => { e.preventDefault(); changeZoom(+0.5); }}
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-white active:bg-black/80"
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

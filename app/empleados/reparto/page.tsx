@@ -1064,6 +1064,7 @@ function RepartoPage() {
                 ref={barcodeRef}
                 autoFocus
                 disabled={scanMode !== 'idle' || scanning}
+                readOnly={cameraOpen}
                 value={barcodeInput}
                 onChange={e => {
                   const val = e.target.value;
