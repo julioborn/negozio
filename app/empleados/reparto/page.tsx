@@ -1104,7 +1104,7 @@ function RepartoPage() {
             {/* Botón cámara */}
             <button
               disabled={scanMode !== 'idle' || scanning}
-              onClick={() => setCameraOpen(true)}
+              onClick={() => { barcodeRef.current?.blur(); setCameraOpen(true); }}
               className="flex h-[58px] w-[58px] shrink-0 items-center justify-center
                          rounded-2xl bg-primary-700 text-white shadow-sm
                          active:bg-primary-800 disabled:opacity-40"

@@ -18,6 +18,11 @@ export default function CameraScanner({ onScan, onClose }: Props) {
   const [focusing,  setFocusing]  = useState(false);
   const [tapRing,   setTapRing]   = useState<{ x: number; y: number } | null>(null);
 
+  // Cierra el teclado al montar el overlay
+  useEffect(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+  }, []);
+
   useEffect(() => {
     let stopped = false;
     let stopFn: (() => void) | null = null;
