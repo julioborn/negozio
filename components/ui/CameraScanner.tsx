@@ -29,9 +29,14 @@ export default function CameraScanner({ onScan, onClose }: Props) {
         const reader = new BrowserMultiFormatReader();
         setHint('Apuntá al código de barras');
 
-        // decodeFromConstraints funciona en iOS — no depende de deviceId
         const controls = await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: 'environment' } } },
+          {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width:      { ideal: 1280 },
+              height:     { ideal: 720 },
+            },
+          },
           videoRef.current!,
           (result) => {
             if (stopped || !result) return;
@@ -41,13 +46,29 @@ export default function CameraScanner({ onScan, onClose }: Props) {
         );
 
         stopFn = () => controls.stop();
-        if (stopped) controls.stop();
+        if (stopped) { controls.stop(); return; }
+
+        // Forzar autofocus continuo en Android (muchos dispositivos lo soportan pero no lo activan por defecto)
+        const video = videoRef.current;
+        if (video?.srcObject instanceof MediaStream) {
+          const [track] = (video.srcObject as MediaStream).getVideoTracks();
+          if (track) {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const caps = (track as any).getCapabilities?.() ?? {};
+              if (caps.focusMode?.includes?.('continuous')) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as any] });
+              }
+            } catch { /* no soportado en este dispositivo, ignorar */ }
+          }
+        }
       } catch (e: unknown) {
         if (stopped) return;
         const msg = e instanceof Error ? e.message : String(e);
         setError(
           msg.includes('ermission') || msg.includes('NotAllowed') || msg.includes('Denied')
-            ? 'Permiso de cámara denegado. Habilitalo en Ajustes > Safari.'
+            ? 'Permiso de cámara denegado. Habilitalo en Ajustes.'
             : 'No se pudo acceder a la cámara.'
         );
       }
