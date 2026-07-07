@@ -37,40 +37,43 @@ interface Props {
   className?:     string;
 }
 
-// ── OSRM Map Matching: convierte puntos GPS en ruta por calles ─────────────
-const CHUNK = 99;
+// ── OSRM Route API: traza ruta por calles entre los puntos GPS ───────────────
+// Usamos /route en lugar de /match porque es más robusto:
+// no requiere timestamps monotónicos ni densidad de puntos uniforme.
+const CHUNK_SIZE = 25; // máx waypoints por request (OSRM limita ~100 pero 25 da respuestas rápidas)
 
 async function snapToRoads(pts: Waypoint[]): Promise<[number, number][]> {
   if (pts.length < 2) return pts.map(p => [p.lat, p.lng]);
 
-  const chunks: Waypoint[][] = [];
-  for (let i = 0; i < pts.length; i += CHUNK) {
-    const chunk = pts.slice(i, i + CHUNK + 1);
-    if (chunk.length >= 2) chunks.push(chunk);
-  }
+  // Submuestrear si hay demasiados puntos (mantener inicio, fin y puntos uniformes)
+  const MAX_PTS = 200;
+  const sampled: Waypoint[] = pts.length > MAX_PTS
+    ? pts.filter((_, i) => i === 0 || i === pts.length - 1 ||
+        i % Math.ceil(pts.length / MAX_PTS) === 0)
+    : pts;
 
   const result: [number, number][] = [];
 
-  for (const chunk of chunks) {
-    const coords     = chunk.map(p => `${p.lng},${p.lat}`).join(';');
-    const radiuses   = chunk.map(() => '25').join(';');
-    const timestamps = chunk
-      .map(p => Math.floor(new Date(p.recorded_at).getTime() / 1000))
-      .join(';');
+  // Procesar en chunks solapados (el último punto del chunk = primero del siguiente)
+  for (let i = 0; i < sampled.length - 1; i += CHUNK_SIZE - 1) {
+    const chunk = sampled.slice(i, i + CHUNK_SIZE);
+    if (chunk.length < 2) break;
+
+    const coords = chunk.map(p => `${p.lng},${p.lat}`).join(';');
 
     try {
       const res = await fetch(
-        `https://router.project-osrm.org/match/v1/driving/${coords}` +
-        `?overview=full&geometries=geojson&radiuses=${radiuses}&timestamps=${timestamps}`
+        `https://router.project-osrm.org/route/v1/driving/${coords}` +
+        `?overview=full&geometries=geojson`,
+        { signal: AbortSignal.timeout(8000) }
       );
-      if (!res.ok) throw new Error('OSRM error');
+      if (!res.ok) throw new Error('OSRM ' + res.status);
       const data = await res.json();
 
-      if (data.code === 'Ok' && data.matchings?.length) {
-        const snapped = (data.matchings as { geometry: { coordinates: [number, number][] } }[])
-          .flatMap(m => m.geometry.coordinates)
+      if (data.code === 'Ok' && data.routes?.[0]) {
+        const snapped = (data.routes[0].geometry.coordinates as [number, number][])
           .map(([lng, lat]) => [lat, lng] as [number, number]);
-        if (result.length > 0) snapped.shift();
+        if (result.length > 0) snapped.shift(); // evitar duplicar el punto de empalme
         result.push(...snapped);
       } else {
         const raw = chunk.map(p => [p.lat, p.lng] as [number, number]);
