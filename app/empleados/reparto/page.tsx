@@ -1621,7 +1621,7 @@ export default function RepartoPage() {
   if (view === 'historial') {
 
     // ── Lista plana de entregas (usada en reparto activo) ─────
-    function DeliveryCard({ d }: { d: DeliveryWithCustomer }) {
+    const DeliveryCard = ({ d }: { d: DeliveryWithCustomer }) => {
       return (
         <div className={`rounded-xl border-2 p-4 ${
           d.payment_status === 'paid' ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'
