@@ -1,10 +1,11 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Download, Loader2, RefreshCw, ShieldX, Sparkles } from 'lucide-react';
+import { ChevronRight, Download, Loader2, RefreshCw, ShieldX, Sparkles, Truck } from 'lucide-react';
 
 import { DateFilter }          from '@/components/dashboard/DateFilter';
 import { LowStockAlerts }      from '@/components/dashboard/LowStockAlerts';
@@ -16,14 +17,62 @@ import { TopProductsTable }    from '@/components/dashboard/TopProductsTable';
 import { useAuth }             from '@/hooks/useAuth';
 import { useDashboard }        from '@/hooks/useDashboard';
 import { useAuthStore }        from '@/store/auth.store';
+import { createClient }        from '@/lib/supabase/client';
 import { exportToCSV }         from '@/lib/utils/csv';
 import { formatDate }          from '@/lib/utils';
+
+interface ActiveReparto {
+  id:            string;
+  created_at:    string;
+  assigned_name: string;
+  delivery_count: number;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, can, loading: authLoading } = useAuth();
   const establishment = useAuthStore((s) => s.establishment);
   const establishmentId = user?.establishment_id ?? null;
+  const supabase = useMemo(() => createClient(), []);
+
+  const [activeRepartos, setActiveRepartos] = useState<ActiveReparto[]>([]);
+
+  useEffect(() => {
+    if (!establishmentId) return;
+    async function loadActive() {
+      const { data: repartos } = await supabase
+        .from('travel_stocks')
+        .select('id, created_at, assigned_to')
+        .eq('establishment_id', establishmentId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
+
+      if (!repartos || repartos.length === 0) return;
+
+      const ids = Array.from(new Set(repartos.map(r => r.assigned_to as string)));
+      const [{ data: profs }, { data: deliveries }] = await Promise.all([
+        supabase.from('profiles').select('id, full_name').in('id', ids),
+        supabase.from('deliveries').select('travel_stock_id').in(
+          'travel_stock_id', repartos.map(r => r.id as string)
+        ),
+      ]);
+
+      const nameMap = new Map((profs ?? []).map(p => [p.id as string, p.full_name as string]));
+      const countMap = new Map<string, number>();
+      for (const d of deliveries ?? []) {
+        const tsId = d.travel_stock_id as string;
+        countMap.set(tsId, (countMap.get(tsId) ?? 0) + 1);
+      }
+
+      setActiveRepartos(repartos.map(r => ({
+        id:             r.id as string,
+        created_at:     r.created_at as string,
+        assigned_name:  nameMap.get(r.assigned_to as string) ?? 'Usuario',
+        delivery_count: countMap.get(r.id as string) ?? 0,
+      })));
+    }
+    loadActive();
+  }, [establishmentId, supabase]);
 
   const {
     dateRange, movementFilter,
@@ -100,6 +149,40 @@ export default function DashboardPage() {
           <DateFilter dateRange={dateRange} onPreset={setPreset} onCustomRange={setCustomRange} />
         </div>
       </div>
+
+      {/* ── Reparto(s) activo(s) ─────────────────────────── */}
+      {activeRepartos.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {activeRepartos.map(r => (
+            <button
+              key={r.id}
+              onClick={() => router.push('/empleados/reparto')}
+              className="flex items-center gap-4 rounded-2xl border-2 border-green-200
+                         bg-green-50 px-5 py-4 text-left transition-all
+                         hover:border-green-300 hover:bg-green-100 active:scale-[0.99]"
+            >
+              <div className="relative flex h-12 w-12 shrink-0 items-center justify-center
+                              rounded-xl bg-green-600 text-white shadow">
+                <Truck className="h-6 w-6" />
+                <span className="absolute -right-1 -top-1 flex h-3.5 w-3.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex h-3.5 w-3.5 rounded-full bg-green-500" />
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-black text-green-900">
+                  Reparto en curso — {r.assigned_name.split(' ')[0]}
+                </p>
+                <p className="text-xs text-green-700">
+                  Iniciado a las {new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                  {' · '}{r.delivery_count} venta{r.delivery_count !== 1 ? 's' : ''} registrada{r.delivery_count !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <ChevronRight className="h-5 w-5 shrink-0 text-green-500" />
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Tarjetas resumen ──────────────────────────────── */}
       <StatsCards stats={stats} isLoading={isLoading} />
