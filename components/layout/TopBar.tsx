@@ -7,13 +7,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import {
-  BoxesIcon, DollarSign, Home, LogOut, Menu,
-  PackagePlus, Receipt, RefreshCw, Settings, ShoppingCart,
+  BoxesIcon, DollarSign, Home, Loader2, LogOut, Menu,
+  PackagePlus, Pencil, Receipt, RefreshCw, Settings, ShoppingCart,
   Smartphone, Truck, Users, X,
 } from 'lucide-react';
 
+import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/hooks/useAuth';
 import { useAuthStore } from '@/store/auth.store';
+import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -63,13 +65,45 @@ interface Props {
 }
 
 export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
-  const [menuOpen,    setMenuOpen]    = useState(false);
-  const [refreshing,  setRefreshing]  = useState(false);
+  const [menuOpen,      setMenuOpen]      = useState(false);
+  const [refreshing,    setRefreshing]    = useState(false);
+  const [profileOpen,   setProfileOpen]   = useState(false);
+  const [firstName,     setFirstName]     = useState('');
+  const [lastName,      setLastName]      = useState('');
+  const [saving,        setSaving]        = useState(false);
+  const [profileError,  setProfileError]  = useState<string | null>(null);
+
   const { user, signOut } = useAuth();
+  const { setUser } = useAuthStore();
+
   function handleRefresh() {
     setRefreshing(true);
     window.location.reload();
   }
+
+  function openProfile() {
+    if (!user) return;
+    const parts = user.full_name.trim().split(/\s+/);
+    setFirstName(parts[0] ?? '');
+    setLastName(parts.slice(1).join(' '));
+    setProfileError(null);
+    setProfileOpen(true);
+  }
+
+  async function saveProfile() {
+    if (!user) return;
+    const full_name = [firstName.trim(), lastName.trim()].filter(Boolean).join(' ');
+    if (full_name.length < 2) { setProfileError('Ingresá al menos el nombre.'); return; }
+    setSaving(true);
+    setProfileError(null);
+    const supabase = createClient();
+    const { error } = await supabase.from('profiles').update({ full_name }).eq('id', user.id);
+    if (error) { setProfileError('Error al guardar. Intentá de nuevo.'); setSaving(false); return; }
+    setUser({ ...user, full_name });
+    setSaving(false);
+    setProfileOpen(false);
+  }
+
   const establishment = useAuthStore((s) => s.establishment);
   const pathname = usePathname();
 
@@ -120,12 +154,16 @@ export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
             ROLE_COLORS[role] ?? ROLE_COLORS.employee)}>
             {ROLE_LABELS[role] ?? role}
           </span>
-          <div className="flex items-center gap-2">
+          <button
+            onClick={openProfile}
+            title="Editar perfil"
+            className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-slate-100 transition-colors"
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
               {initials}
             </div>
             <span className="hidden text-sm font-medium text-slate-700 sm:block">{user.full_name}</span>
-          </div>
+          </button>
           <button onClick={signOut} title="Salir"
             className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors">
             <LogOut className="h-4 w-4" />
@@ -199,15 +237,19 @@ export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
             </nav>
 
             <div className="border-t border-slate-100 p-4">
-              <div className="mb-3 flex items-center gap-3">
+              <button
+                onClick={() => { setMenuOpen(false); openProfile(); }}
+                className="mb-3 flex w-full items-center gap-3 rounded-xl px-1 py-1 hover:bg-slate-50 transition-colors"
+              >
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-bold text-primary-700">
                   {initials}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1 text-left">
                   <p className="truncate text-sm font-semibold text-slate-900">{user.full_name}</p>
                   <p className="text-xs text-slate-400">{ROLE_LABELS[role] ?? role}</p>
                 </div>
-              </div>
+                <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+              </button>
               <button
                 onClick={() => { setMenuOpen(false); signOut(); }}
                 className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-danger-600 hover:bg-danger-50 transition-colors">
@@ -218,6 +260,45 @@ export function TopBar({ className, rightExtra, showHamburger = true }: Props) {
           </div>
         </>
       )}
+      {/* Modal editar perfil */}
+      <Modal isOpen={profileOpen} onClose={() => setProfileOpen(false)} title="Mi perfil" size="sm">
+        <div className="flex flex-col gap-4">
+          {profileError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {profileError}
+            </div>
+          )}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-slate-700">Nombre</label>
+            <input
+              value={firstName}
+              onChange={e => setFirstName(e.target.value)}
+              placeholder="Ej: Juan"
+              className="block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm
+                         focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-slate-700">Apellido</label>
+            <input
+              value={lastName}
+              onChange={e => setLastName(e.target.value)}
+              placeholder="Ej: García"
+              className="block w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm
+                         focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+            />
+          </div>
+          <button
+            onClick={saveProfile}
+            disabled={saving}
+            className="mt-1 flex items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5
+                       text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {saving ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+      </Modal>
     </>
   );
 }

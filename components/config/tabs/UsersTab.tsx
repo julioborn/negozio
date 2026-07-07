@@ -20,10 +20,11 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 const addUserSchema = z.object({
-  full_name: z.string().min(2, 'Mínimo 2 caracteres'),
-  email:     z.string().email('Email inválido'),
-  password:  z.string().min(8, 'Mínimo 8 caracteres'),
-  role:      z.enum(['cashier', 'employee']),
+  first_name: z.string().min(1, 'Requerido'),
+  last_name:  z.string().min(1, 'Requerido'),
+  email:      z.string().email('Email inválido'),
+  password:   z.string().min(8, 'Mínimo 8 caracteres'),
+  role:       z.enum(['cashier', 'employee']),
 });
 type AddUserData = z.infer<typeof addUserSchema>;
 
@@ -39,7 +40,8 @@ export function UsersTab({ establishmentId }: Props) {
 
   async function handleCreate(data: AddUserData) {
     setServerError(null);
-    const result = await createUserAction({ ...data, establishment_id: establishmentId });
+    const full_name = `${data.first_name.trim()} ${data.last_name.trim()}`;
+    const result = await createUserAction({ full_name, email: data.email, password: data.password, role: data.role, establishment_id: establishmentId });
     if (!result.success) { setServerError(result.error); return; }
     reset();
     setModalOpen(false);
@@ -96,10 +98,17 @@ export function UsersTab({ establishmentId }: Props) {
           </div>
         )}
         <form onSubmit={handleSubmit(handleCreate)} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-slate-700">Nombre completo</label>
-            <input {...register('full_name')} className={inputCls(errors.full_name?.message)} />
-            {errors.full_name && <p className="text-xs text-red-600">{errors.full_name.message}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-slate-700">Nombre</label>
+              <input {...register('first_name')} placeholder="Juan" className={inputCls(errors.first_name?.message)} />
+              {errors.first_name && <p className="text-xs text-red-600">{errors.first_name.message}</p>}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-slate-700">Apellido</label>
+              <input {...register('last_name')} placeholder="García" className={inputCls(errors.last_name?.message)} />
+              {errors.last_name && <p className="text-xs text-red-600">{errors.last_name.message}</p>}
+            </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-slate-700">Email</label>
