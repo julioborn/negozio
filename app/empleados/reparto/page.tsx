@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowLeft, Banknote, Camera, CheckCircle2, ChevronRight,
   Clock, CreditCard, History, Loader2, MapPin, Minus, Package,
-  Plus, Search, ShoppingCart, Truck, X,
+  Plus, Search, ShoppingCart, Truck, UserPlus, X,
 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -17,13 +17,13 @@ import dynamic from 'next/dynamic';
 const CameraScanner = dynamic(() => import('@/components/ui/CameraScanner'), { ssr: false });
 import { lookupBarcode } from '@/lib/utils/barcode-lookup';
 import type {
-  Customer, Delivery, DeliveryPaymentMethod,
+  Customer, Delivery, DeliveryItem, DeliveryPaymentMethod,
   EstablishmentProductDetail, TravelStockItem,
 } from '@/types/database';
 
 // ─── Types ────────────────────────────────────────────────────
-type RepartoView = 'home' | 'scanning' | 'active' | 'nueva-venta' | 'historial';
-type VentaStep   = 'cliente' | 'productos' | 'pago';
+type RepartoView = 'home' | 'scanning' | 'agregar-stock' | 'active' | 'nueva-venta' | 'historial' | 'cierre-reparto';
+type VentaStep   = 'cliente' | 'nuevo-cliente' | 'productos' | 'pago';
 
 interface ScanItem {
   product:  EstablishmentProductDetail;
@@ -224,6 +224,19 @@ export default function RepartoPage() {
   }
   const [repartoGroups, setRepartoGroups] = useState<RepartoGroup[]>([]);
 
+  // ── Nuevo cliente ────────────────────────────────────────────
+  const [newClientName,     setNewClientName]     = useState('');
+  const [newClientLocality, setNewClientLocality] = useState('');
+  const [newClientBarrio,   setNewClientBarrio]   = useState('');
+  const [newClientPhone,    setNewClientPhone]    = useState('');
+  const [savingClient,      setSavingClient]      = useState(false);
+
+  // ── Cierre del reparto ────────────────────────────────────────
+  interface DeliveryFull extends DeliveryWithCustomer { items: DeliveryItem[]; }
+  const [cierreDeliveries, setCierreDeliveries] = useState<DeliveryFull[]>([]);
+  const [cierreLoading,    setCierreLoading]    = useState(false);
+  const [cierreClosing,    setCierreClosing]    = useState(false);
+
   // ── GPS tracking — corre durante todo el reparto activo ───────
   // Guarda en DB cuando el dispositivo se movió > 15m O pasaron > 10s
   useEffect(() => {
@@ -281,9 +294,9 @@ export default function RepartoPage() {
     };
   }, [activeTsId, supabase]);
 
-  // ── Carga productos existentes al entrar a la vista scanning ─
+  // ── Carga productos existentes al entrar a la vista scanning / agregar-stock ─
   useEffect(() => {
-    if (view !== 'scanning' || !establishmentId) return;
+    if ((view !== 'scanning' && view !== 'agregar-stock') || !establishmentId) return;
     setLoadingProds(true);
     supabase
       .from('establishment_products_detail')
@@ -518,16 +531,66 @@ export default function RepartoPage() {
     }
   }
 
+  // ── Add stock to an already-active reparto ───────────────────
+  async function handleAddStockToReparto() {
+    if (!activeTsId || scanCart.length === 0) return;
+    setCreating(true);
+    setScanError(null);
+    try {
+      for (const item of scanCart) {
+        const existing = tsItems.find(i => i.establishment_product_id === item.product.id);
+        if (existing) {
+          await supabase.from('travel_stock_items')
+            .update({ quantity_assigned: existing.quantity_assigned + item.quantity })
+            .eq('id', existing.id);
+        } else {
+          await supabase.from('travel_stock_items').insert({
+            travel_stock_id:          activeTsId,
+            establishment_product_id: item.product.id,
+            product_name:             item.product.name,
+            quantity_assigned:        item.quantity,
+            quantity_sold:            0,
+            unit_price:               item.product.price,
+          });
+        }
+      }
+      const updated = await fetchTsItems(activeTsId);
+      setTsItems(updated);
+      setScanCart([]);
+      setView('active');
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Error al agregar productos');
+    } finally {
+      setCreating(false);
+    }
+  }
+
   // ── Close reparto ────────────────────────────────────────────
   async function handleCloseReparto() {
     if (!activeTsId) return;
-    if (!confirm('¿Cerrar el reparto del día? Los productos no vendidos quedarán solo como registro.')) return;
+    setCierreClosing(true);
     const { error } = await supabase.rpc('close_reparto', { p_travel_stock_id: activeTsId });
-    if (error) { alert(error.message); return; }
+    if (error) { alert(error.message); setCierreClosing(false); return; }
     setActiveTsId(null);
     setTsItems([]);
     setLastVenta(null);
+    setCierreDeliveries([]);
+    setCierreClosing(false);
     setView('home');
+  }
+
+  // ── Prepare close summary screen ─────────────────────────────
+  async function prepareCierre() {
+    if (!activeTsId) return;
+    setCierreLoading(true);
+    const { data } = await supabase
+      .from('deliveries')
+      .select('*, customer:customers(*), items:delivery_items(*)')
+      .eq('travel_stock_id', activeTsId)
+      .order('created_at');
+    setCierreDeliveries((data ?? []) as DeliveryFull[]);
+    setCierreLoading(false);
+    setView('cierre-reparto');
   }
 
   // ── Nueva venta ─────────────────────────────────────────────
@@ -668,6 +731,35 @@ export default function RepartoPage() {
     }
   }
 
+  // ── Nuevo cliente ────────────────────────────────────────────
+  async function handleNewCustomer() {
+    if (!newClientName.trim() || !establishmentId) return;
+    setSavingClient(true);
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .insert({
+          establishment_id: establishmentId,
+          name:             newClientName.trim(),
+          locality:         newClientLocality.trim() || null,
+          barrio:           newClientBarrio.trim()   || null,
+          phone:            newClientPhone.trim()    || null,
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
+      setSelectedCustomer(data as Customer);
+      setVentaStep('productos');
+      setView('nueva-venta');
+      setNewClientName(''); setNewClientLocality('');
+      setNewClientBarrio(''); setNewClientPhone('');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al guardar cliente');
+    } finally {
+      setSavingClient(false);
+    }
+  }
+
   // ── Customer grouping ────────────────────────────────────────
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return customers;
@@ -788,22 +880,27 @@ export default function RepartoPage() {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // SCANNING — Carga de camioneta
+  // SCANNING — Carga de camioneta / Agregar productos
   // ─────────────────────────────────────────────────────────────
-  if (view === 'scanning') {
+  if (view === 'scanning' || view === 'agregar-stock') {
+    const isAgregando = view === 'agregar-stock';
     return (
       <div className="mx-auto max-w-md p-4 pb-32">
         {/* Header */}
         <div className="mb-5 flex items-center gap-3">
           <button
-            onClick={() => setView('home')}
+            onClick={() => setView(isAgregando ? 'active' : 'home')}
             className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-xl font-black text-slate-900">Cargar camioneta</h1>
-            <p className="text-xs text-slate-500">Escaneá los productos que llevás hoy</p>
+            <h1 className="text-xl font-black text-slate-900">
+              {isAgregando ? 'Agregar productos' : 'Cargar camioneta'}
+            </h1>
+            <p className="text-xs text-slate-500">
+              {isAgregando ? 'Agregá más productos al reparto en curso' : 'Escaneá los productos que llevás hoy'}
+            </p>
           </div>
         </div>
 
@@ -1131,12 +1228,12 @@ export default function RepartoPage() {
           </div>
         )}
 
-        {/* Botón iniciar ruta */}
+        {/* Botón iniciar ruta / agregar al reparto */}
         {scanCart.length > 0 && (
           <div className="fixed bottom-0 left-0 right-0 border-t border-slate-100 bg-white/95 p-4 backdrop-blur-sm">
             <div className="mx-auto max-w-md">
               <button
-                onClick={handleCreateReparto}
+                onClick={isAgregando ? handleAddStockToReparto : handleCreateReparto}
                 disabled={creating}
                 className="flex h-16 w-full items-center justify-center gap-3 rounded-2xl
                            bg-green-600 text-xl font-black text-white
@@ -1146,7 +1243,10 @@ export default function RepartoPage() {
                   ? <Loader2 className="h-6 w-6 animate-spin" />
                   : <Truck className="h-6 w-6" />
                 }
-                {creating ? 'Iniciando reparto…' : 'Iniciar ruta'}
+                {creating
+                  ? (isAgregando ? 'Guardando…' : 'Iniciando reparto…')
+                  : (isAgregando ? 'Agregar al reparto' : 'Iniciar ruta')
+                }
               </button>
             </div>
           </div>
@@ -1217,6 +1317,16 @@ export default function RepartoPage() {
           </button>
 
           <button
+            onClick={() => { setScanCart([]); setScanError(null); setView('agregar-stock'); }}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
+                       border-2 border-primary-200 bg-primary-50 text-primary-700
+                       transition-transform active:scale-[0.97]"
+          >
+            <Plus className="h-5 w-5" />
+            <span className="text-sm font-semibold">Agregar productos al reparto</span>
+          </button>
+
+          <button
             onClick={async () => { setView('historial'); await loadHistorial(); }}
             className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
                        border-2 border-slate-200 bg-white text-slate-700
@@ -1227,7 +1337,7 @@ export default function RepartoPage() {
           </button>
 
           <button
-            onClick={handleCloseReparto}
+            onClick={prepareCierre}
             className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
                        border-2 border-red-200 bg-red-50 text-red-700
                        transition-transform active:scale-[0.97]"
@@ -1281,17 +1391,28 @@ export default function RepartoPage() {
           <h1 className="text-xl font-black text-slate-900">¿A quién le entregás?</h1>
         </div>
 
-        {/* Buscador */}
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            autoFocus
-            value={customerSearch}
-            onChange={e => setCustomerSearch(e.target.value)}
-            placeholder="Buscar cliente…"
-            className="block w-full rounded-xl border border-slate-200 py-3 pl-9 pr-4
-                       text-sm focus:border-primary-700 focus:outline-none"
-          />
+        {/* Buscador + Nuevo cliente */}
+        <div className="mb-4 flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              autoFocus
+              value={customerSearch}
+              onChange={e => setCustomerSearch(e.target.value)}
+              placeholder="Buscar cliente…"
+              className="block w-full rounded-xl border border-slate-200 py-3 pl-9 pr-4
+                         text-sm focus:border-primary-700 focus:outline-none"
+            />
+          </div>
+          <button
+            onClick={() => setVentaStep('nuevo-cliente')}
+            className="flex items-center gap-1.5 rounded-xl border-2 border-primary-200
+                       bg-primary-50 px-4 py-3 text-sm font-semibold text-primary-700
+                       whitespace-nowrap transition-transform active:scale-[0.97]"
+          >
+            <UserPlus className="h-4 w-4" />
+            Nuevo
+          </button>
         </div>
 
         {customersLoading ? (
@@ -1641,6 +1762,232 @@ export default function RepartoPage() {
             })}
           </div>
         )}
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // NUEVA VENTA — Sub-step: NUEVO CLIENTE
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'nueva-venta' && ventaStep === 'nuevo-cliente') {
+    return (
+      <div className="mx-auto max-w-md p-4 pb-8">
+        <div className="mb-5 flex items-center gap-3">
+          <button onClick={() => setVentaStep('cliente')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-xl font-black text-slate-900">Nuevo cliente</h1>
+            <p className="text-xs text-slate-500">Completá los datos del nuevo cliente</p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Nombre *
+            </label>
+            <input
+              autoFocus
+              value={newClientName}
+              onChange={e => setNewClientName(e.target.value)}
+              placeholder="Ej: Juan Pérez"
+              className="block w-full rounded-xl border border-slate-200 px-4 py-3
+                         text-sm focus:border-primary-700 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Localidad
+            </label>
+            <input
+              value={newClientLocality}
+              onChange={e => setNewClientLocality(e.target.value)}
+              placeholder="Ej: San Martín"
+              className="block w-full rounded-xl border border-slate-200 px-4 py-3
+                         text-sm focus:border-primary-700 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Barrio
+            </label>
+            <input
+              value={newClientBarrio}
+              onChange={e => setNewClientBarrio(e.target.value)}
+              placeholder="Ej: Centro"
+              className="block w-full rounded-xl border border-slate-200 px-4 py-3
+                         text-sm focus:border-primary-700 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Teléfono
+            </label>
+            <input
+              value={newClientPhone}
+              onChange={e => setNewClientPhone(e.target.value)}
+              placeholder="Ej: 1123456789"
+              type="tel"
+              className="block w-full rounded-xl border border-slate-200 px-4 py-3
+                         text-sm focus:border-primary-700 focus:outline-none"
+            />
+          </div>
+
+          <button
+            onClick={handleNewCustomer}
+            disabled={!newClientName.trim() || savingClient}
+            className="mt-2 flex h-14 w-full items-center justify-center gap-2 rounded-2xl
+                       bg-primary-700 text-base font-black text-white
+                       transition-transform active:scale-[0.97] disabled:opacity-50"
+          >
+            {savingClient
+              ? <Loader2 className="h-5 w-5 animate-spin" />
+              : <UserPlus className="h-5 w-5" />
+            }
+            {savingClient ? 'Guardando…' : 'Crear cliente y continuar'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // CIERRE DEL REPARTO — resumen completo
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'cierre-reparto') {
+    const totalVendidoMonto = cierreDeliveries.reduce((s, d) => s + Number(d.total_amount), 0);
+
+    return (
+      <div className="mx-auto max-w-md p-4 pb-32">
+        <div className="mb-5 flex items-center gap-3">
+          <button onClick={() => setView('active')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-xl font-black text-slate-900">Cierre del reparto</h1>
+            <p className="text-xs text-slate-500">Revisá el resumen antes de cerrar</p>
+          </div>
+        </div>
+
+        {cierreLoading ? (
+          <div className="flex justify-center py-16">
+            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+          </div>
+        ) : (
+          <>
+            {/* ── Resumen de stock ── */}
+            <div className="mb-6">
+              <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                Resumen de stock
+              </p>
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                {/* Header */}
+                <div className="grid grid-cols-4 gap-2 border-b border-slate-100 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <span className="col-span-2">Producto</span>
+                  <span className="text-center">Cargado</span>
+                  <span className="text-center">Sobró</span>
+                </div>
+                {tsItems.map((item, i) => {
+                  const sobrante = item.quantity_assigned - item.quantity_sold;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`grid grid-cols-4 gap-2 px-4 py-3 text-sm ${i > 0 ? 'border-t border-slate-50' : ''}`}
+                    >
+                      <span className="col-span-2 truncate font-medium text-slate-800">{item.product_name}</span>
+                      <span className="text-center tabular-nums text-slate-500">{item.quantity_assigned}</span>
+                      <span className={`text-center font-bold tabular-nums ${
+                        sobrante > 0 ? 'text-green-600' : sobrante < 0 ? 'text-red-600' : 'text-slate-400'
+                      }`}>
+                        {sobrante > 0 ? `+${sobrante}` : sobrante}
+                      </span>
+                    </div>
+                  );
+                })}
+                {tsItems.length === 0 && (
+                  <p className="px-4 py-6 text-center text-xs text-slate-400">Sin productos registrados</p>
+                )}
+              </div>
+            </div>
+
+            {/* ── Ventas realizadas ── */}
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Ventas realizadas
+                </p>
+                <p className="text-sm font-black text-slate-900">{formatCurrency(totalVendidoMonto)}</p>
+              </div>
+
+              {cierreDeliveries.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white py-8 text-center">
+                  <Package className="h-10 w-10 text-slate-200" />
+                  <p className="text-sm text-slate-400">No se registraron ventas</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {cierreDeliveries.map(d => (
+                    <div key={d.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                      {/* Cabecera de la entrega */}
+                      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                        <div>
+                          <p className="font-bold text-slate-900">{d.customer?.name}</p>
+                          <p className="text-xs text-slate-400">
+                            {new Date(d.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-black text-slate-900 tabular-nums">{formatCurrency(Number(d.total_amount))}</p>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            d.payment_method === 'cash'       ? 'bg-green-100 text-green-700' :
+                            d.payment_method === 'transfer'   ? 'bg-blue-100 text-blue-700'   :
+                                                                'bg-amber-100 text-amber-700'
+                          }`}>
+                            {payLabel(d.payment_method)}
+                          </span>
+                        </div>
+                      </div>
+                      {/* Productos de la entrega */}
+                      <div className="px-4 py-2">
+                        {(d.items ?? []).map(item => (
+                          <div key={item.id} className="flex items-center justify-between py-1.5 text-sm">
+                            <span className="text-slate-700">
+                              {item.quantity} × {item.product_name}
+                            </span>
+                            <span className="tabular-nums text-slate-500">{formatCurrency(item.subtotal)}</span>
+                          </div>
+                        ))}
+                        {(!d.items || d.items.length === 0) && (
+                          <p className="py-2 text-xs text-slate-400">Sin detalle de productos</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Botón confirmar cierre */}
+        <div className="fixed bottom-0 left-0 right-0 border-t border-slate-100 bg-white/95 p-4 backdrop-blur-sm">
+          <div className="mx-auto max-w-md">
+            <button
+              onClick={handleCloseReparto}
+              disabled={cierreClosing || cierreLoading}
+              className="flex h-16 w-full items-center justify-center gap-3 rounded-2xl
+                         bg-red-600 text-xl font-black text-white
+                         transition-transform active:scale-[0.97] disabled:opacity-50"
+            >
+              {cierreClosing
+                ? <Loader2 className="h-6 w-6 animate-spin" />
+                : <X className="h-6 w-6" />
+              }
+              {cierreClosing ? 'Cerrando reparto…' : 'Confirmar cierre del reparto'}
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
