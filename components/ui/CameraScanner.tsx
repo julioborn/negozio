@@ -10,12 +10,13 @@ interface Props {
 
 export default function CameraScanner({ onScan, onClose }: Props) {
   const videoRef  = useRef<HTMLVideoElement>(null);
-  // Ref para onScan — evita que el effect se reinicie en cada render
   const onScanRef = useRef(onScan);
   useEffect(() => { onScanRef.current = onScan; });
 
-  const [error, setError] = useState<string | null>(null);
-  const [hint,  setHint]  = useState('Iniciando cámara…');
+  const [error,     setError]     = useState<string | null>(null);
+  const [hint,      setHint]      = useState('Iniciando cámara…');
+  const [focusing,  setFocusing]  = useState(false);
+  const [tapRing,   setTapRing]   = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     let stopped = false;
@@ -27,7 +28,7 @@ export default function CameraScanner({ onScan, onClose }: Props) {
         if (stopped) return;
 
         const reader = new BrowserMultiFormatReader();
-        setHint('Apuntá al código de barras');
+        setHint('Apuntá al código · tocá para enfocar');
 
         const controls = await reader.decodeFromConstraints(
           {
@@ -48,21 +49,9 @@ export default function CameraScanner({ onScan, onClose }: Props) {
         stopFn = () => controls.stop();
         if (stopped) { controls.stop(); return; }
 
-        // Forzar autofocus continuo en Android (muchos dispositivos lo soportan pero no lo activan por defecto)
-        const video = videoRef.current;
-        if (video?.srcObject instanceof MediaStream) {
-          const [track] = (video.srcObject as MediaStream).getVideoTracks();
-          if (track) {
-            try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const caps = (track as any).getCapabilities?.() ?? {};
-              if (caps.focusMode?.includes?.('continuous')) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as any] });
-              }
-            } catch { /* no soportado en este dispositivo, ignorar */ }
-          }
-        }
+        // Intentar autofocus continuo al arrancar
+        await trySetFocus('continuous');
+
       } catch (e: unknown) {
         if (stopped) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -72,13 +61,52 @@ export default function CameraScanner({ onScan, onClose }: Props) {
             : 'No se pudo acceder a la cámara.'
         );
       }
+
+      return () => stopFn?.();
     }
 
     start();
-
-    // El effect corre una sola vez — onScan llega por ref
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Obtiene el track de video activo
+  function getTrack(): MediaStreamTrack | null {
+    const video = videoRef.current;
+    if (!video?.srcObject || !(video.srcObject instanceof MediaStream)) return null;
+    return (video.srcObject as MediaStream).getVideoTracks()[0] ?? null;
+  }
+
+  // Intenta aplicar un modo de foco; silencia errores si no es soportado
+  async function trySetFocus(mode: string) {
+    const track = getTrack();
+    if (!track) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const caps = (track as any).getCapabilities?.() ?? {};
+      if (caps.focusMode?.includes?.(mode)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await track.applyConstraints({ advanced: [{ focusMode: mode } as any] });
+      }
+    } catch { /* no soportado */ }
+  }
+
+  // Tap-to-focus: ciclo auto → continuous para forzar reenfoque
+  async function handleTap(e: React.MouseEvent | React.TouchEvent) {
+    if (focusing) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0]!.clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e ? e.touches[0]!.clientY : (e as React.MouseEvent).clientY;
+    setTapRing({ x: clientX - rect.left, y: clientY - rect.top });
+    setTimeout(() => setTapRing(null), 700);
+
+    setFocusing(true);
+    setHint('Enfocando…');
+    await trySetFocus('auto');
+    await new Promise(r => setTimeout(r, 400));
+    await trySetFocus('continuous');
+    setFocusing(false);
+    setHint('Apuntá al código · tocá para enfocar');
+  }
 
   return (
     <div className="fixed inset-0 z-[9999] flex flex-col bg-black">
@@ -114,7 +142,21 @@ export default function CameraScanner({ onScan, onClose }: Props) {
               playsInline
               autoPlay
               muted
+              onClick={handleTap}
+              onTouchStart={handleTap}
             />
+
+            {/* Anillo de tap-to-focus */}
+            {tapRing && (
+              <div
+                className="pointer-events-none absolute rounded-full border-2 border-yellow-300 opacity-80"
+                style={{
+                  width: 64, height: 64,
+                  left: tapRing.x - 32, top: tapRing.y - 32,
+                  animation: 'ping 0.6s ease-out forwards',
+                }}
+              />
+            )}
 
             {/* Mira */}
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
