@@ -91,12 +91,11 @@ export default function CameraScanner({ onScan, onClose }: Props) {
   }
 
   // Tap-to-focus: ciclo auto → continuous para forzar reenfoque
-  async function handleTap(e: React.MouseEvent | React.TouchEvent) {
+  async function handleTap(e: React.PointerEvent<HTMLVideoElement>) {
+    e.preventDefault(); // evita que Android abra el teclado
     if (focusing) return;
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0]!.clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'touches' in e ? e.touches[0]!.clientY : (e as React.MouseEvent).clientY;
-    setTapRing({ x: clientX - rect.left, y: clientY - rect.top });
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTapRing({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     setTimeout(() => setTapRing(null), 700);
 
     setFocusing(true);
@@ -139,11 +138,11 @@ export default function CameraScanner({ onScan, onClose }: Props) {
             <video
               ref={videoRef}
               className="h-full w-full object-cover"
+              style={{ touchAction: 'none' }}
               playsInline
               autoPlay
               muted
-              onClick={handleTap}
-              onTouchStart={handleTap}
+              onPointerDown={handleTap}
             />
 
             {/* Anillo de tap-to-focus */}
