@@ -1142,6 +1142,14 @@ function RepartoPage() {
             <p className="font-bold text-primary-900">{scannedProduct.name}</p>
             {scannedProduct.brand && <p className="text-xs text-primary-500">{scannedProduct.brand}</p>}
             <div className="mt-2 mb-3 space-y-2">
+              <div>
+                <label className="text-xs font-medium text-primary-600">Código de barras</label>
+                <input
+                  readOnly
+                  value={scannedProduct.barcode}
+                  className="block w-full rounded-xl border border-primary-200 bg-white/70 px-3 py-2 text-sm font-mono text-slate-600 select-all"
+                />
+              </div>
               <ContentInput
                 label="Contenido del envase"
                 qty={netQty}
@@ -1175,6 +1183,14 @@ function RepartoPage() {
           <div className="mb-4 rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-blue-500 mb-1">Encontrado en Open Food Facts</p>
             <div className="mb-3 space-y-2">
+              <div>
+                <label className="text-xs text-blue-600">Código de barras</label>
+                <input
+                  readOnly
+                  value={externalInfo.barcode}
+                  className="block w-full rounded-xl border border-blue-200 bg-white/70 px-3 py-2 text-sm font-mono text-slate-600 select-all"
+                />
+              </div>
               <KeyboardInput
                 label="Nombre"
                 value={externalInfo.name}
@@ -1216,6 +1232,14 @@ function RepartoPage() {
           <div className="mb-4 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 mb-1">No encontrado — ingresar manualmente</p>
             <div className="mb-3 space-y-2">
+              <div>
+                <label className="text-xs text-amber-700">Código de barras</label>
+                <input
+                  readOnly
+                  value={externalInfo?.barcode ?? ''}
+                  className="block w-full rounded-xl border border-amber-200 bg-white/70 px-3 py-2 text-sm font-mono text-slate-600 select-all"
+                />
+              </div>
               <KeyboardInput
                 label="Nombre del producto"
                 value={scanManualName}
