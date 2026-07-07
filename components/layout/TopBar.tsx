@@ -43,10 +43,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Repartos',
     links: [
-      { href: '/empleados/venta-externa', label: 'Venta externa', icon: Smartphone,  roles: ['owner'] },
-      { href: '/dashboard/viajes',        label: 'Viajes',        icon: Truck,        roles: ['owner'] },
-      { href: '/dashboard/repartos',      label: 'Repartos',      icon: DollarSign,   roles: ['owner'] },
-      { href: '/empleados/reparto',       label: 'Reparto',       icon: DollarSign,   roles: ['employee'] },
+      { href: '/empleados/reparto',       label: 'Hacer reparto', icon: Truck,        roles: ['owner', 'employee'] },
+      { href: '/dashboard/repartos',      label: 'Historial',     icon: DollarSign,   roles: ['owner'] },
+      { href: '/empleados/venta-externa', label: 'Venta externa', icon: Smartphone,   roles: ['owner'] },
+      { href: '/dashboard/viajes',        label: 'Viajes',        icon: BoxesIcon,    roles: ['owner'] },
       { href: '/dashboard/clientes',      label: 'Clientes',      icon: Users,        roles: ['owner'] },
       { href: '/dashboard/cobros',        label: 'Cobros',        icon: Receipt,      roles: ['owner'] },
     ],

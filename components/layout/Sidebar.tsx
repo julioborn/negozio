@@ -38,9 +38,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Repartos',
     items: [
+      { href: '/empleados/reparto',        label: 'Hacer reparto', icon: Truck },
+      { href: '/dashboard/repartos',       label: 'Historial',     icon: DollarSign },
       { href: '/empleados/venta-externa',  label: 'Venta externa', icon: Smartphone },
-      { href: '/dashboard/viajes',         label: 'Viajes',        icon: Truck },
-      { href: '/dashboard/repartos',       label: 'Repartos',      icon: DollarSign },
+      { href: '/dashboard/viajes',         label: 'Viajes',        icon: BoxesIcon },
       { href: '/dashboard/clientes',       label: 'Clientes',      icon: Users },
       { href: '/dashboard/cobros',         label: 'Cobros',        icon: Receipt },
     ],
