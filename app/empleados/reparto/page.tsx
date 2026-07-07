@@ -228,6 +228,15 @@ export default function RepartoPage() {
   }
   const [repartoGroups, setRepartoGroups] = useState<RepartoGroup[]>([]);
 
+  // ── Repartos disponibles (para unirse) ──────────────────────
+  interface AvailableReparto {
+    id:            string;
+    created_at:    string;
+    assigned_to:   string;
+    assigned_name: string;
+  }
+  const [availableRepartos, setAvailableRepartos] = useState<AvailableReparto[]>([]);
+
   // ── Nuevo cliente ────────────────────────────────────────────
   const [newClientName,     setNewClientName]     = useState('');
   const [newClientLocality, setNewClientLocality] = useState('');
@@ -325,7 +334,7 @@ export default function RepartoPage() {
     return (data as TravelStockItem[]) ?? [];
   }, [supabase]);
 
-  // ── Check for active reparto on mount ───────────────────────
+  // ── Check for active repartos on mount ──────────────────────
   useEffect(() => {
     if (!user || !establishmentId) {
       if (user && !establishmentId) setInitializing(false);
@@ -333,22 +342,43 @@ export default function RepartoPage() {
     }
     let cancelled = false;
     async function check() {
-      const { data } = await supabase
+      // Traer TODOS los repartos activos del establecimiento
+      const { data: repartos } = await supabase
         .from('travel_stocks')
-        .select('*')
+        .select('id, created_at, assigned_to')
         .eq('establishment_id', establishmentId)
         .eq('status', 'active')
-        .eq('assigned_to', user!.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .order('created_at', { ascending: false });
 
       if (cancelled) return;
-      if (data && data.length > 0) {
-        const ts = data[0];
-        setActiveTsId(ts.id);
-        const items = await fetchTsItems(ts.id);
-        if (!cancelled) { setTsItems(items); setView('active'); }
+
+      if (repartos && repartos.length > 0) {
+        // Nombres de los asignados
+        const ids = Array.from(new Set(repartos.map(r => r.assigned_to as string)));
+        const { data: profs } = await supabase
+          .from('profiles').select('id, full_name').in('id', ids);
+        if (cancelled) return;
+
+        const nameMap = new Map((profs ?? []).map(p => [p.id as string, p.full_name as string]));
+        setAvailableRepartos(repartos.map(r => ({
+          id:            r.id as string,
+          created_at:    r.created_at as string,
+          assigned_to:   r.assigned_to as string,
+          assigned_name: nameMap.get(r.assigned_to as string) ?? 'Usuario',
+        })));
+
+        // Si el usuario tiene su propio reparto, ir directo al activo
+        const mine = repartos.find(r => r.assigned_to === user!.id);
+        if (mine) {
+          const items = await fetchTsItems(mine.id as string);
+          if (!cancelled) {
+            setActiveTsId(mine.id as string);
+            setTsItems(items);
+            setView('active');
+          }
+        }
       }
+
       if (!cancelled) setInitializing(false);
     }
     check();
@@ -536,6 +566,14 @@ export default function RepartoPage() {
     } finally {
       setCreating(false);
     }
+  }
+
+  // ── Unirse al reparto de un colega ──────────────────────────
+  async function joinReparto(tsId: string) {
+    const items = await fetchTsItems(tsId);
+    setActiveTsId(tsId);
+    setTsItems(items);
+    setView('active');
   }
 
   // ── Add stock to an already-active reparto ───────────────────
@@ -881,6 +919,40 @@ export default function RepartoPage() {
             <History className="h-5 w-5 text-slate-400" />
             <span className="text-base font-semibold">Historial de repartos</span>
           </button>
+
+          {/* ── Repartos de colegas para unirse ── */}
+          {availableRepartos.filter(r => r.assigned_to !== user?.id).length > 0 && (
+            <div>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                Repartos en curso
+              </p>
+              {availableRepartos
+                .filter(r => r.assigned_to !== user?.id)
+                .map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => joinReparto(r.id)}
+                    className="flex w-full items-center gap-3 rounded-2xl border-2
+                               border-blue-200 bg-blue-50 px-4 py-4 mb-2
+                               text-left transition-transform active:scale-[0.97]"
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100">
+                      <Truck className="h-5 w-5 text-blue-700" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-blue-900">
+                        Reparto de {r.assigned_name.split(' ')[0]}
+                      </p>
+                      <p className="text-xs text-blue-600">
+                        Iniciado a las {new Date(r.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} · Tocá para unirte
+                      </p>
+                    </div>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-blue-400" />
+                  </button>
+                ))
+              }
+            </div>
+          )}
         </div>
       </div>
     );

@@ -37,13 +37,13 @@ export function usePullToRefresh(onRefresh: () => void) {
 
       const diff = e.touches[0]!.clientY - startYRef.current;
 
-      if (diff > 0 && window.scrollY === 0) {
+      // Una vez que empezamos a jalar, seguimos aunque scrollY cambie levemente
+      if (diff > 0 && (window.scrollY < 4 || pullingRef.current)) {
         pullingRef.current = true;
-        const clamped = Math.min(diff * 0.5, MAX_PULL); // resistencia al arrastre
+        const clamped = Math.min(diff * 0.5, MAX_PULL);
         setPullY(clamped);
-        // Prevenir scroll nativo mientras hacemos el pull
-        if (diff > 8) e.preventDefault();
-      } else if (pullingRef.current) {
+        e.preventDefault(); // prevenir desde el primer px
+      } else if (diff <= 0 && pullingRef.current) {
         setPullY(0);
         pullingRef.current = false;
       }
