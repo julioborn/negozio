@@ -482,7 +482,6 @@ export default function RepartosPage() {
                       <CollapseSection
                         title="Recorrido"
                         icon={MapPin}
-                        count={hasGps ? routeWps.length : undefined}
                         open={openSections.has('mapa')}
                         onToggle={() => toggleSection('mapa')}
                       >
