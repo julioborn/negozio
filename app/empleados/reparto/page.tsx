@@ -809,6 +809,13 @@ export default function RepartoPage() {
     }
   }
 
+  // ── Auto-dismiss last venta notification after 6s ───────────
+  useEffect(() => {
+    if (!lastVenta) return;
+    const t = setTimeout(() => setLastVenta(null), 6000);
+    return () => clearTimeout(t);
+  }, [lastVenta]);
+
   // ── Customer grouping ────────────────────────────────────────
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return customers;
