@@ -285,6 +285,23 @@ export default function RepartosPage() {
               {isOpen && !isLoadingDt && (
                 <div className="border-t border-slate-100 px-5 pb-5 pt-4 space-y-3">
 
+                  {/* ── Participantes ── */}
+                  {rep.deliveries.length > 0 && (() => {
+                    const participantIds = Array.from(new Set(rep.deliveries.map(d => d.sold_by)));
+                    const participants   = participantIds.map(id => profiles.find(p => p.id === id)).filter(Boolean);
+                    return (
+                      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        <span className="text-[11px] font-medium text-slate-400">Participaron:</span>
+                        {participants.map(p => (
+                          <span key={p!.id} className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-slate-700">
+                            {p!.full_name}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   {/* ── Mini stats dentro de la card ── */}
                   {rep.deliveries.length > 0 && (
                     <div className="grid grid-cols-3 gap-2">
@@ -422,8 +439,11 @@ export default function RepartosPage() {
                     >
                       <div className="overflow-y-auto divide-y divide-slate-50" style={{ maxHeight: 320 }}>
                         {rep.deliveries.map(d => {
-                          const cfg  = PAY_CFG[d.payment_method ?? ''];
-                          const Icon = cfg?.icon ?? DollarSign;
+                          const cfg           = PAY_CFG[d.payment_method ?? ''];
+                          const Icon          = cfg?.icon ?? DollarSign;
+                          const sellerName    = profiles.find(p => p.id === d.sold_by)?.full_name;
+                          const collectorName = d.paid_by ? profiles.find(p => p.id === d.paid_by)?.full_name : null;
+                          const collectedByOther = d.paid_by && d.paid_by !== d.sold_by;
                           return (
                             <div key={d.id} className="py-3 first:pt-0 last:pb-0">
                               <div className="flex items-start gap-3">
@@ -445,6 +465,19 @@ export default function RepartosPage() {
                                       {d.payment_status === 'paid' ? '✓ Cobrado' : payLabel(d.payment_method)}
                                     </span>
                                     <span className="text-[11px] text-slate-400">{fDate(d.created_at)}</span>
+                                  </div>
+                                  {/* Quién vendió y quién cobró */}
+                                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                                    {sellerName && (
+                                      <span className="text-[11px] text-slate-400">
+                                        Vendió: <span className="font-semibold text-slate-500">{sellerName}</span>
+                                      </span>
+                                    )}
+                                    {collectedByOther && collectorName && (
+                                      <span className="text-[11px] text-slate-400">
+                                        Cobró: <span className="font-semibold text-slate-500">{collectorName}</span>
+                                      </span>
+                                    )}
                                   </div>
                                   {d.items && d.items.length > 0 && (
                                     <div className="mt-1.5 space-y-0.5">

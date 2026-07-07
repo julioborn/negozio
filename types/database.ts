@@ -272,6 +272,7 @@ export interface Delivery {
   travel_stock_id: string | null;
   customer_id: string;
   sold_by: string;
+  paid_by: string | null;
   payment_status: DeliveryPaymentStatus;
   payment_method: DeliveryPaymentMethod | null;
   total_amount: number;

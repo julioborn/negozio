@@ -224,10 +224,11 @@ function RepartoPage() {
   const [ventaProductPage,   setVentaProductPage]    = useState(0);
 
   // ── Historial ───────────────────────────────────────────────
-  const [historial,        setHistorial]        = useState<DeliveryWithCustomer[]>([]);
-  const [historialLoading, setHistorialLoading] = useState(false);
-  const [markingPaid,      setMarkingPaid]      = useState<string | null>(null);
-  const [confirmPaidId,    setConfirmPaidId]    = useState<string | null>(null);
+  const [historial,         setHistorial]         = useState<DeliveryWithCustomer[]>([]);
+  const [historialLoading,  setHistorialLoading]  = useState(false);
+  const [markingPaid,       setMarkingPaid]        = useState<string | null>(null);
+  const [confirmPaidId,     setConfirmPaidId]      = useState<string | null>(null);
+  const [historialProfiles, setHistorialProfiles]  = useState<{ id: string; full_name: string }[]>([]);
 
   interface RepartoGroup {
     tsId:       string;
@@ -744,8 +745,15 @@ function RepartoPage() {
     if (!establishmentId || !user) return;
     setHistorialLoading(true);
 
+    // Cargar perfiles del establecimiento para mostrar nombres
+    supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('establishment_id', establishmentId)
+      .then(({ data }) => setHistorialProfiles((data ?? []) as { id: string; full_name: string }[]));
+
     if (activeTsId) {
-      // Reparto activo: solo las ventas del día (lista plana)
+      // Reparto activo: todas las ventas del reparto (lista plana)
       const { data } = await supabase
         .from('deliveries')
         .select('*, customer:customers(*)')
@@ -790,13 +798,17 @@ function RepartoPage() {
   async function handleMarkPaid(deliveryId: string) {
     setMarkingPaid(deliveryId);
     try {
-      const { error } = await supabase.rpc('mark_delivery_paid', { p_delivery_id: deliveryId });
+      const { error } = await supabase.rpc('mark_delivery_paid', {
+        p_delivery_id: deliveryId,
+        p_paid_by:     user!.id,
+      });
       if (error) throw new Error(error.message);
-      setHistorial(prev => prev.map(d =>
-        d.id === deliveryId
-          ? { ...d, payment_status: 'paid' as const, paid_at: new Date().toISOString() }
-          : d
-      ));
+      const update = { payment_status: 'paid' as const, paid_at: new Date().toISOString(), paid_by: user!.id };
+      setHistorial(prev => prev.map(d => d.id === deliveryId ? { ...d, ...update } : d));
+      setRepartoGroups(prev => prev.map(g => ({
+        ...g,
+        deliveries: g.deliveries.map(d => d.id === deliveryId ? { ...d, ...update } : d),
+      })));
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Error');
     } finally {
@@ -1917,6 +1929,11 @@ function RepartoPage() {
 
     // ── Lista plana de entregas (usada en reparto activo) ─────
     const DeliveryCard = ({ d }: { d: DeliveryWithCustomer }) => {
+      const sellerName      = historialProfiles.find(p => p.id === d.sold_by)?.full_name;
+      const collectorName   = d.paid_by ? historialProfiles.find(p => p.id === d.paid_by)?.full_name : null;
+      const isMySale        = d.sold_by === user?.id;
+      const collectedByOther = d.paid_by && d.paid_by !== d.sold_by;
+
       return (
         <div className={`rounded-xl border-2 p-4 ${
           d.payment_status === 'paid' ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'
@@ -1931,6 +1948,16 @@ function RepartoPage() {
                 {new Date(d.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                 {' · '}{payLabel(d.payment_method)}
               </p>
+              {!isMySale && sellerName && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Vendió: <span className="font-semibold">{sellerName}</span>
+                </p>
+              )}
+              {collectedByOther && collectorName && (
+                <p className="text-[11px] text-slate-500">
+                  Cobró: <span className="font-semibold">{collectorName}</span>
+                </p>
+              )}
             </div>
             <div className="shrink-0">
               {d.payment_status === 'pending' ? (
