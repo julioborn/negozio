@@ -196,6 +196,7 @@ export default function RepartoPage() {
   const [loadingProds,     setLoadingProds]     = useState(false);
   const [productListOpen,  setProductListOpen]  = useState(false);
   const [productPage,      setProductPage]      = useState(0);
+  const [scanCartOpen,     setScanCartOpen]     = useState(true);
   const PRODS_PER_PAGE = 8;
   const barcodeRef       = useRef<HTMLInputElement>(null);
   // GPS tracking
@@ -902,7 +903,7 @@ export default function RepartoPage() {
           </button>
           <div>
             <h1 className="text-xl font-black text-slate-900">
-              {isAgregando ? 'Agregar productos' : 'Cargar camioneta'}
+              {isAgregando ? 'Agregar productos' : 'Cargar'}
             </h1>
             <p className="text-xs text-slate-500">
               {isAgregando ? 'Agregá más productos al reparto en curso' : 'Escaneá los productos que llevás hoy'}
@@ -1201,7 +1202,7 @@ export default function RepartoPage() {
                          bg-white px-4 py-3 text-sm font-semibold text-slate-600
                          hover:bg-slate-50 active:bg-slate-100"
             >
-              <span>O elegí de tus productos</span>
+              <span>Tus productos</span>
               <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${productListOpen ? 'rotate-180' : ''}`} />
             </button>
 
@@ -1314,7 +1315,7 @@ export default function RepartoPage() {
                 }
                 {creating
                   ? (isAgregando ? 'Guardando…' : 'Iniciando reparto…')
-                  : (isAgregando ? 'Agregar al reparto' : 'Iniciar ruta')
+                  : (isAgregando ? 'Agregar al reparto' : 'Iniciar reparto')
                 }
               </button>
             </div>
