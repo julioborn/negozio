@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  AlertTriangle, ArrowLeft, Banknote, Camera, CheckCircle2, ChevronRight,
-  Clock, CreditCard, History, Loader2, MapPin, Minus, Package,
+  AlertTriangle, ArrowLeft, Banknote, Camera, CheckCircle2, ChevronDown,
+  ChevronRight, Clock, CreditCard, History, Loader2, MapPin, Minus, Package,
   Plus, Search, ShoppingCart, Truck, UserPlus, X,
 } from 'lucide-react';
 
@@ -194,6 +194,9 @@ export default function RepartoPage() {
   const [epProducts,       setEpProducts]       = useState<EstablishmentProductDetail[]>([]);
   const [productSearch,    setProductSearch]    = useState('');
   const [loadingProds,     setLoadingProds]     = useState(false);
+  const [productListOpen,  setProductListOpen]  = useState(false);
+  const [productPage,      setProductPage]      = useState(0);
+  const PRODS_PER_PAGE = 8;
   const barcodeRef       = useRef<HTMLInputElement>(null);
   // GPS tracking
   const gpsWatchRef      = useRef<number | null>(null);
@@ -308,6 +311,9 @@ export default function RepartoPage() {
         setLoadingProds(false);
       });
   }, [view, establishmentId, supabase]);
+
+  // Reset página al buscar
+  useEffect(() => { setProductPage(0); }, [productSearch]);
 
   // ── Helpers ─────────────────────────────────────────────────
   const fetchTsItems = useCallback(async (tsId: string): Promise<TravelStockItem[]> => {
@@ -999,64 +1005,6 @@ export default function RepartoPage() {
           />
         )}
 
-        {/* ── Productos existentes ── */}
-        {scanMode === 'idle' && (
-          <div className="mb-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              O elegí de tus productos
-            </p>
-            <div className="relative mb-2">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                value={productSearch}
-                onChange={e => setProductSearch(e.target.value)}
-                placeholder="Buscar producto…"
-                className="block w-full rounded-xl border border-slate-200 bg-white
-                           py-2.5 pl-9 pr-4 text-sm focus:border-primary-700 focus:outline-none"
-              />
-            </div>
-            {loadingProds ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-              </div>
-            ) : filteredEpProducts.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-400">
-                {epProducts.length === 0 ? 'Todavía no hay productos cargados' : 'No se encontraron productos'}
-              </p>
-            ) : (
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                {filteredEpProducts.map((p, i) => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      setScannedProduct(p);
-                      setScanMode('local');
-                      setScanQty(1);
-                      setScanLocalPrice(String(p.price));
-                      const lp = parseNetContent(p.net_content ?? '');
-                      setNetQty(lp.qty);
-                      setNetUnit(lp.unit);
-                    }}
-                    className={`flex w-full items-center justify-between px-4 py-3 text-left
-                                hover:bg-slate-50 active:bg-primary-50
-                                ${i > 0 ? 'border-t border-slate-50' : ''}`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-900">{p.name}</p>
-                      <p className="text-xs text-slate-400">
-                        {formatCurrency(p.price)}
-                        {p.net_content ? ` · ${p.net_content}` : ''}
-                        {p.brand ? ` · ${p.brand}` : ''}
-                      </p>
-                    </div>
-                    <Plus className="ml-3 h-4 w-4 shrink-0 text-primary-600" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── Modo LOCAL: producto ya estaba en el sistema ── */}
         {scanMode === 'local' && scannedProduct && (
           <div className="mb-4 rounded-2xl border-2 border-primary-200 bg-primary-50 p-4">
@@ -1176,55 +1124,176 @@ export default function RepartoPage() {
           </div>
         )}
 
-        {/* Lista de productos cargados */}
+        {/* ── Productos cargados — estilo ticket ── */}
         {scanCart.length > 0 && (
-          <div>
+          <div className="mb-4">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               {scanCart.length} producto{scanCart.length !== 1 ? 's' : ''} cargado{scanCart.length !== 1 ? 's' : ''}
             </p>
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              {scanCart.map((item, i) => (
+            <div className="flex flex-col gap-2">
+              {scanCart.map(item => (
                 <div
                   key={item.product.id}
-                  className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''}`}
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">{item.product.name}</p>
-                    <p className="text-xs text-slate-400">
-                      {formatCurrency(item.product.price)} c/u
-                      {item.product.net_content ? ` · ${item.product.net_content}` : ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setScanCart(prev =>
-                        prev.map(p => p.product.id === item.product.id
-                          ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p)
+                  {/* Cabecera del ticket */}
+                  <div className="flex items-start justify-between px-4 pt-3 pb-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-slate-900">{item.product.name}</p>
+                      {item.product.brand && (
+                        <p className="text-[11px] text-slate-400">{item.product.brand}</p>
                       )}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white"
-                    >
-                      <Minus className="h-3 w-3" />
-                    </button>
-                    <span className="w-8 text-center text-sm font-bold tabular-nums">{item.quantity}</span>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {formatCurrency(item.product.price)} c/u
+                        {item.product.net_content ? ` · ${item.product.net_content}` : ''}
+                      </p>
+                    </div>
                     <button
-                      onClick={() => setScanCart(prev =>
-                        prev.map(p => p.product.id === item.product.id
-                          ? { ...p, quantity: p.quantity + 1 } : p)
-                      )}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-700 text-white"
+                      onClick={() => setScanCart(prev => prev.filter(p => p.product.id !== item.product.id))}
+                      className="ml-2 mt-0.5 text-slate-300 hover:text-red-500"
                     >
-                      <Plus className="h-3 w-3" />
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
-                  <button
-                    onClick={() => setScanCart(prev => prev.filter(p => p.product.id !== item.product.id))}
-                    className="text-slate-300 hover:text-red-500"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                  {/* Línea perforada */}
+                  <div className="mx-4 border-t border-dashed border-slate-200" />
+                  {/* Footer del ticket: cantidad + subtotal */}
+                  <div className="flex items-center justify-between px-4 py-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      Subtotal: {formatCurrency(item.product.price * item.quantity)}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setScanCart(prev =>
+                          prev.map(p => p.product.id === item.product.id
+                            ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p)
+                        )}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="w-8 text-center text-sm font-black tabular-nums text-slate-900">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => setScanCart(prev =>
+                          prev.map(p => p.product.id === item.product.id
+                            ? { ...p, quantity: p.quantity + 1 } : p)
+                        )}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-700 text-white"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* ── Elegir de productos existentes (colapsable, paginado) ── */}
+        {scanMode === 'idle' && (
+          <div className="mb-4">
+            <button
+              onClick={() => setProductListOpen(o => !o)}
+              className="flex w-full items-center justify-between rounded-xl border border-slate-200
+                         bg-white px-4 py-3 text-sm font-semibold text-slate-600
+                         hover:bg-slate-50 active:bg-slate-100"
+            >
+              <span>O elegí de tus productos</span>
+              <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${productListOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {productListOpen && (
+              <div className="mt-2">
+                {/* Buscador */}
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={productSearch}
+                    onChange={e => setProductSearch(e.target.value)}
+                    placeholder="Buscar producto…"
+                    className="block w-full rounded-xl border border-slate-200 bg-white
+                               py-2.5 pl-9 pr-4 text-sm focus:border-primary-700 focus:outline-none"
+                  />
+                </div>
+
+                {loadingProds ? (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                  </div>
+                ) : filteredEpProducts.length === 0 ? (
+                  <p className="py-4 text-center text-xs text-slate-400">
+                    {epProducts.length === 0 ? 'Todavía no hay productos cargados' : 'No se encontraron productos'}
+                  </p>
+                ) : (() => {
+                  const totalPages = Math.ceil(filteredEpProducts.length / PRODS_PER_PAGE);
+                  const pageProds  = filteredEpProducts.slice(
+                    productPage * PRODS_PER_PAGE,
+                    (productPage + 1) * PRODS_PER_PAGE
+                  );
+                  return (
+                    <>
+                      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                        {pageProds.map((p, i) => (
+                          <button
+                            key={p.id}
+                            onClick={() => {
+                              setScannedProduct(p);
+                              setScanMode('local');
+                              setScanQty(1);
+                              setScanLocalPrice(String(p.price));
+                              const lp = parseNetContent(p.net_content ?? '');
+                              setNetQty(lp.qty);
+                              setNetUnit(lp.unit);
+                            }}
+                            className={`flex w-full items-center justify-between px-4 py-3 text-left
+                                        hover:bg-slate-50 active:bg-primary-50
+                                        ${i > 0 ? 'border-t border-slate-100' : ''}`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-slate-900">{p.name}</p>
+                              <p className="text-xs text-slate-400">
+                                {formatCurrency(p.price)}
+                                {p.net_content ? ` · ${p.net_content}` : ''}
+                                {p.brand ? ` · ${p.brand}` : ''}
+                              </p>
+                            </div>
+                            <Plus className="ml-3 h-4 w-4 shrink-0 text-primary-600" />
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Paginación */}
+                      {totalPages > 1 && (
+                        <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                          <button
+                            onClick={() => setProductPage(p => Math.max(0, p - 1))}
+                            disabled={productPage === 0}
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 font-semibold
+                                       disabled:opacity-30 hover:bg-slate-50"
+                          >
+                            ← Anterior
+                          </button>
+                          <span className="font-medium">
+                            {productPage + 1} / {totalPages}
+                          </span>
+                          <button
+                            onClick={() => setProductPage(p => Math.min(totalPages - 1, p + 1))}
+                            disabled={productPage >= totalPages - 1}
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 font-semibold
+                                       disabled:opacity-30 hover:bg-slate-50"
+                          >
+                            Siguiente →
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 
