@@ -1,6 +1,8 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 import {
   AlertTriangle, ArrowLeft, Banknote, Camera, CheckCircle2, ChevronDown,
@@ -161,11 +163,14 @@ function QtyControl({
 }
 
 // ─── Page ─────────────────────────────────────────────────────
-export default function RepartoPage() {
+function RepartoPage() {
   const { user }         = useAuth();
   const establishmentId  = user?.establishment_id ?? null;
   const supabase         = useMemo(() => createClient(), []);
   const { customers, isLoading: customersLoading } = useCustomers(establishmentId);
+
+  const searchParams   = useSearchParams();
+  const tsParam        = searchParams.get('ts');
 
   // ── View state ──────────────────────────────────────────────
   const [view,         setView]         = useState<RepartoView>('home');
@@ -380,6 +385,23 @@ export default function RepartoPage() {
             setTsItems(items);
             setView('active');
           }
+          if (!cancelled) setInitializing(false);
+          return;
+        }
+
+        // Si viene con ?ts=<id> desde el dashboard del dueño, auto-unirse
+        if (tsParam) {
+          const target = repartos.find(r => r.id === tsParam);
+          if (target) {
+            const items = await fetchTsItems(target.id as string);
+            if (!cancelled) {
+              setActiveTsId(target.id as string);
+              setTsItems(items);
+              setView('active');
+            }
+            if (!cancelled) setInitializing(false);
+            return;
+          }
         }
       }
 
@@ -387,7 +409,7 @@ export default function RepartoPage() {
     }
     check();
     return () => { cancelled = true; };
-  }, [user, establishmentId, supabase, fetchTsItems]);
+  }, [user, establishmentId, supabase, fetchTsItems, tsParam]);
 
   // ── Barcode scan ─────────────────────────────────────────────
   async function handleBarcodeScan(code: string) {
@@ -1568,17 +1590,17 @@ export default function RepartoPage() {
                   <div
                     key={item.id}
                     className={`flex items-center justify-between px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''} ${
-                      remaining === 0 ? 'bg-red-50' : 'bg-green-50'
+                      remaining === 0 ? 'bg-red-50/60' : 'bg-green-50/60'
                     }`}
                   >
-                    <p className={`text-sm font-medium ${remaining === 0 ? 'text-red-800' : 'text-green-900'}`}>
+                    <p className="text-sm font-medium text-slate-800">
                       {item.product_name}
                     </p>
                     <div className="flex gap-4 text-xs tabular-nums">
-                      <span className={remaining === 0 ? 'text-red-400' : 'text-green-600'}>
+                      <span className="text-slate-400">
                         vendidos: {item.quantity_sold}
                       </span>
-                      <span className={`font-bold ${remaining === 0 ? 'text-red-500' : 'text-green-700'}`}>
+                      <span className={`font-bold ${remaining === 0 ? 'text-red-400' : 'text-emerald-600'}`}>
                         quedan: {remaining}
                       </span>
                     </div>
@@ -2320,4 +2342,16 @@ export default function RepartoPage() {
   }
 
   return null;
+}
+
+export default function RepartoPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary-700" />
+      </div>
+    }>
+      <RepartoPage />
+    </Suspense>
+  );
 }

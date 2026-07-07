@@ -75,8 +75,9 @@ function PaySummary({ deliveries }: { deliveries: RepartoDetail['deliveries'] })
     const k = d.payment_method ?? 'pending_7';
     totals[k] = (totals[k] ?? 0) + d.total_amount;
   }
-  const cobrado   = (totals.cash ?? 0) + (totals.transfer ?? 0);
-  const pendiente = (totals.pending_7 ?? 0) + (totals.pending_15 ?? 0);
+  // Cobrado/pendiente basado en payment_status (no en el método de pago)
+  const cobrado   = deliveries.filter(d => d.payment_status === 'paid').reduce((s, d) => s + d.total_amount, 0);
+  const pendiente = deliveries.filter(d => d.payment_status === 'pending').reduce((s, d) => s + d.total_amount, 0);
   const total     = cobrado + pendiente;
 
   return (

@@ -156,7 +156,7 @@ export default function DashboardPage() {
           {activeRepartos.map(r => (
             <button
               key={r.id}
-              onClick={() => router.push('/empleados/reparto')}
+              onClick={() => router.push(`/empleados/reparto?ts=${r.id}`)}
               className="flex items-center gap-4 rounded-2xl border-2 border-green-200
                          bg-green-50 px-5 py-4 text-left transition-all
                          hover:border-green-300 hover:bg-green-100 active:scale-[0.99]"
