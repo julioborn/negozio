@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useCustomers } from '@/hooks/useCustomers';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
+import { Modal } from '@/components/ui/Modal';
 import { ContentInput, KeyboardInput, NumPad } from '@/components/ui/SoftKeyboard';
 import dynamic from 'next/dynamic';
 const CameraScanner = dynamic(() => import('@/components/ui/CameraScanner'), { ssr: false });
@@ -221,6 +222,7 @@ export default function RepartoPage() {
   const [historial,        setHistorial]        = useState<DeliveryWithCustomer[]>([]);
   const [historialLoading, setHistorialLoading] = useState(false);
   const [markingPaid,      setMarkingPaid]      = useState<string | null>(null);
+  const [confirmPaidId,    setConfirmPaidId]    = useState<string | null>(null);
 
   interface RepartoGroup {
     tsId:       string;
@@ -1905,7 +1907,7 @@ export default function RepartoPage() {
             <div className="shrink-0">
               {d.payment_status === 'pending' ? (
                 <button
-                  onClick={() => handleMarkPaid(d.id)}
+                  onClick={() => setConfirmPaidId(d.id)}
                   disabled={markingPaid === d.id}
                   className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5
                              text-xs font-bold text-white disabled:opacity-50"
@@ -1924,6 +1926,54 @@ export default function RepartoPage() {
       );
     }
 
+    const confirmPaidDelivery =
+      historial.find(d => d.id === confirmPaidId) ??
+      (repartoGroups.flatMap(g => g.deliveries).find(d => d.id === confirmPaidId) ?? null);
+
+    const confirmModal = (
+      <Modal
+        isOpen={!!confirmPaidId}
+        onClose={() => setConfirmPaidId(null)}
+        title="Confirmar cobro"
+        size="sm"
+      >
+        <div className="flex flex-col gap-4">
+          {confirmPaidDelivery && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="font-semibold text-slate-900">{confirmPaidDelivery.customer?.name}</p>
+              <p className="text-lg font-black text-amber-800 tabular-nums">
+                {formatCurrency(Number(confirmPaidDelivery.total_amount))}
+              </p>
+              <p className="text-xs text-slate-500">{payLabel(confirmPaidDelivery.payment_method)}</p>
+            </div>
+          )}
+          <p className="text-sm text-slate-600">
+            ¿Confirmás que recibiste el pago de esta entrega? Esta acción no se puede deshacer.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setConfirmPaidId(null)}
+              className="flex-1 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-600
+                         hover:bg-slate-50 active:bg-slate-100"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={async () => {
+                const id = confirmPaidId!;
+                setConfirmPaidId(null);
+                await handleMarkPaid(id);
+              }}
+              className="flex-1 rounded-xl bg-green-600 py-3 text-sm font-bold text-white
+                         hover:bg-green-700 active:scale-[0.97]"
+            >
+              Confirmar cobro
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+
     if (activeTsId) {
       // ── Vista: ventas del reparto activo ──────────────────────
       const paid    = historial.filter(d => d.payment_status === 'paid');
@@ -1932,6 +1982,7 @@ export default function RepartoPage() {
       const totalPending = pending.reduce((s, d) => s + Number(d.total_amount), 0);
 
       return (
+        <>
         <div className="mx-auto max-w-md p-4 pb-8">
           <div className="mb-5 flex items-center gap-3">
             <button onClick={() => setView('active')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
@@ -1966,11 +2017,14 @@ export default function RepartoPage() {
             </div>
           )}
         </div>
+        {confirmModal}
+      </>
       );
     }
 
     // ── Vista: historial agrupado por repartos ────────────────
     return (
+      <>
       <div className="mx-auto max-w-md p-4 pb-8">
         <div className="mb-5 flex items-center gap-3">
           <button onClick={() => setView('home')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
@@ -2028,6 +2082,8 @@ export default function RepartoPage() {
           </div>
         )}
       </div>
+      {confirmModal}
+      </>
     );
   }
 
@@ -2249,7 +2305,7 @@ export default function RepartoPage() {
                 ? <Loader2 className="h-6 w-6 animate-spin" />
                 : <X className="h-6 w-6" />
               }
-              {cierreClosing ? 'Cerrando reparto…' : 'Confirmar cierre del reparto'}
+              {cierreClosing ? 'Cerrando reparto…' : 'CERRAR REPARTO'}
             </button>
           </div>
         </div>
