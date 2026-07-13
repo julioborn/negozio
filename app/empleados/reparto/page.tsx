@@ -2,6 +2,7 @@
 
 import { Suspense } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import {
@@ -969,14 +970,14 @@ function RepartoPage() {
             </button>
           )}
 
-          <button
-            onClick={async () => { setView('historial'); await loadHistorial(); }}
+          <Link
+            href="/dashboard/repartos"
             className="flex h-16 w-full items-center justify-center gap-2 rounded-2xl border-2
                        border-slate-200 bg-white text-slate-700 transition-transform active:scale-[0.97]"
           >
             <History className="h-5 w-5 text-slate-400" />
             <span className="text-base font-semibold">Historial de repartos</span>
-          </button>
+          </Link>
 
           {/* ── Repartos de colegas para unirse ── */}
           {availableRepartos.filter(r => r.assigned_to !== user?.id).length > 0 && (
