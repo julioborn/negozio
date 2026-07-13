@@ -437,59 +437,70 @@ export default function RepartosPage() {
                       open={openSections.has('ventas')}
                       onToggle={() => toggleSection('ventas')}
                     >
-                      <div className="overflow-y-auto divide-y divide-slate-50" style={{ maxHeight: 320 }}>
+                      <div className="overflow-y-auto space-y-2" style={{ maxHeight: 380 }}>
                         {rep.deliveries.map(d => {
-                          const cfg           = PAY_CFG[d.payment_method ?? ''];
-                          const Icon          = cfg?.icon ?? DollarSign;
-                          const sellerName    = profiles.find(p => p.id === d.sold_by)?.full_name;
-                          const collectorName = d.paid_by ? profiles.find(p => p.id === d.paid_by)?.full_name : null;
+                          const cfg              = PAY_CFG[d.payment_method ?? ''];
+                          const sellerName       = profiles.find(p => p.id === d.sold_by)?.full_name;
+                          const collectorName    = d.paid_by ? profiles.find(p => p.id === d.paid_by)?.full_name : null;
                           const collectedByOther = d.paid_by && d.paid_by !== d.sold_by;
+                          const isPaid           = d.payment_status === 'paid';
                           return (
-                            <div key={d.id} className="py-3 first:pt-0 last:pb-0">
-                              <div className="flex items-start gap-3">
-                                <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${cfg?.color ?? 'bg-slate-50 border-slate-200 text-slate-400'}`}>
-                                  <Icon className="h-4 w-4" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    <p className="font-semibold text-slate-900 truncate">{d.customer.name}</p>
-                                    <p className="shrink-0 font-bold text-slate-900">{formatCurrency(d.total_amount)}</p>
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                            <div key={d.id} className={`overflow-hidden rounded-xl border-2 ${
+                              isPaid ? 'border-green-200 bg-white' : 'border-amber-200 bg-white'
+                            }`}>
+                              {/* Cabecera */}
+                              <div className={`flex items-center justify-between px-3 py-2 ${
+                                isPaid ? 'bg-green-50' : 'bg-amber-50'
+                              }`}>
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-bold text-slate-900">{d.customer.name}</p>
+                                  <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-slate-500">
                                     {d.customer.barrio && (
-                                      <span className="flex items-center gap-0.5 text-[11px] text-slate-400">
+                                      <span className="flex items-center gap-0.5">
                                         <MapPin className="h-3 w-3" />{d.customer.barrio}
                                       </span>
                                     )}
-                                    <span className={`text-[11px] font-semibold ${d.payment_status === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
-                                      {d.payment_status === 'paid' ? '✓ Cobrado' : payLabel(d.payment_method)}
-                                    </span>
-                                    <span className="text-[11px] text-slate-400">{fDate(d.created_at)}</span>
+                                    <span>{fDate(d.created_at)}</span>
                                   </div>
-                                  {/* Quién vendió y quién cobró */}
-                                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                                    {sellerName && (
-                                      <span className="text-[11px] text-slate-400">
-                                        Vendió: <span className="font-semibold text-slate-500">{sellerName}</span>
-                                      </span>
-                                    )}
-                                    {collectedByOther && collectorName && (
-                                      <span className="text-[11px] text-slate-400">
-                                        Cobró: <span className="font-semibold text-slate-500">{collectorName}</span>
-                                      </span>
-                                    )}
-                                  </div>
-                                  {d.items && d.items.length > 0 && (
-                                    <div className="mt-1.5 space-y-0.5">
-                                      {d.items.map(it => (
-                                        <p key={it.id} className="text-xs text-slate-500">
-                                          {it.quantity}× {it.product_name}
-                                          <span className="ml-1 text-slate-400">— {formatCurrency(it.subtotal)}</span>
-                                        </p>
-                                      ))}
+                                </div>
+                                <span className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  isPaid
+                                    ? 'bg-green-100 text-green-700'
+                                    : cfg?.color ?? 'bg-amber-100 text-amber-700'
+                                }`}>
+                                  {isPaid ? '✓ Cobrado' : payLabel(d.payment_method)}
+                                </span>
+                              </div>
+
+                              {/* Líneas de productos */}
+                              {d.items && d.items.length > 0 && (
+                                <div className="px-3 py-2 space-y-1">
+                                  {d.items.map(it => (
+                                    <div key={it.id} className="flex items-baseline gap-2 text-sm">
+                                      <span className="w-4 shrink-0 text-right font-bold tabular-nums text-slate-400">{it.quantity}</span>
+                                      <span className="flex-1 truncate text-slate-700">{it.product_name}</span>
+                                      <span className="shrink-0 tabular-nums text-slate-500">{formatCurrency(it.unit_price)}</span>
                                     </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Separador punteado */}
+                              <div className="mx-3 border-t border-dashed border-slate-200" />
+
+                              {/* Total + meta */}
+                              <div className="flex items-center justify-between px-3 py-2">
+                                <div className="text-[11px] text-slate-400 space-y-0.5">
+                                  {sellerName && (
+                                    <p>Vendió: <span className="font-semibold text-slate-500">{sellerName}</span></p>
+                                  )}
+                                  {collectedByOther && collectorName && (
+                                    <p>Cobró: <span className="font-semibold text-slate-500">{collectorName}</span></p>
                                   )}
                                 </div>
+                                <p className="text-base font-black tabular-nums text-slate-900">
+                                  {formatCurrency(d.total_amount)}
+                                </p>
                               </div>
                             </div>
                           );

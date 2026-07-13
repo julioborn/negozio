@@ -756,7 +756,7 @@ function RepartoPage() {
       // Reparto activo: todas las ventas del reparto (lista plana)
       const { data } = await supabase
         .from('deliveries')
-        .select('*, customer:customers(*)')
+        .select('*, customer:customers(*), items:delivery_items(*)')
         .eq('travel_stock_id', activeTsId)
         .order('created_at', { ascending: false });
       setHistorial((data ?? []) as DeliveryWithCustomer[]);
@@ -773,7 +773,7 @@ function RepartoPage() {
           .limit(20),
         supabase
           .from('deliveries')
-          .select('*, customer:customers(*)')
+          .select('*, customer:customers(*), items:delivery_items(*)')
           .eq('establishment_id', establishmentId)
           .eq('sold_by', user.id)
           .order('created_at', { ascending: false })
@@ -1952,40 +1952,33 @@ function RepartoPage() {
   // ─────────────────────────────────────────────────────────────
   if (view === 'historial') {
 
-    // ── Lista plana de entregas (usada en reparto activo) ─────
+    // ── Tarjeta de entrega estilo ticket ──────────────────────
     const DeliveryCard = ({ d }: { d: DeliveryWithCustomer }) => {
-      const sellerName      = historialProfiles.find(p => p.id === d.sold_by)?.full_name;
-      const collectorName   = d.paid_by ? historialProfiles.find(p => p.id === d.paid_by)?.full_name : null;
-      const isMySale        = d.sold_by === user?.id;
+      const sellerName       = historialProfiles.find(p => p.id === d.sold_by)?.full_name;
+      const collectorName    = d.paid_by ? historialProfiles.find(p => p.id === d.paid_by)?.full_name : null;
+      const isMySale         = d.sold_by === user?.id;
       const collectedByOther = d.paid_by && d.paid_by !== d.sold_by;
+      const isPaid           = d.payment_status === 'paid';
 
       return (
-        <div className={`rounded-xl border-2 p-4 ${
-          d.payment_status === 'paid' ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'
+        <div className={`overflow-hidden rounded-xl border-2 ${
+          isPaid ? 'border-green-200 bg-white' : 'border-amber-200 bg-white'
         }`}>
-          <div className="flex items-start justify-between gap-3">
+          {/* Cabecera */}
+          <div className={`flex items-center justify-between px-4 py-2.5 ${
+            isPaid ? 'bg-green-50' : 'bg-amber-50'
+          }`}>
             <div className="min-w-0">
-              <p className="truncate font-semibold text-slate-900">{d.customer?.name}</p>
-              <p className="text-sm font-bold text-slate-700 tabular-nums">
-                {formatCurrency(Number(d.total_amount))}
-              </p>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="truncate font-bold text-slate-900">{d.customer?.name}</p>
+              <p className="text-[11px] text-slate-500">
                 {new Date(d.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                 {' · '}{payLabel(d.payment_method)}
               </p>
-              {!isMySale && sellerName && (
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Vendió: <span className="font-semibold">{sellerName}</span>
-                </p>
-              )}
-              {collectedByOther && collectorName && (
-                <p className="text-[11px] text-slate-500">
-                  Cobró: <span className="font-semibold">{collectorName}</span>
-                </p>
-              )}
             </div>
-            <div className="shrink-0">
-              {d.payment_status === 'pending' ? (
+            <div className="shrink-0 pl-3">
+              {isPaid ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              ) : (
                 <button
                   onClick={() => setConfirmPaidId(d.id)}
                   disabled={markingPaid === d.id}
@@ -1997,10 +1990,39 @@ function RepartoPage() {
                     : <CheckCircle2 className="h-3 w-3" />}
                   Cobrar
                 </button>
-              ) : (
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
               )}
             </div>
+          </div>
+
+          {/* Líneas de productos */}
+          {d.items && d.items.length > 0 && (
+            <div className="px-4 py-2 space-y-1">
+              {d.items.map(item => (
+                <div key={item.id} className="flex items-baseline gap-2 text-sm">
+                  <span className="w-5 shrink-0 text-right font-bold tabular-nums text-slate-500">{item.quantity}</span>
+                  <span className="flex-1 truncate text-slate-700">{item.product_name}</span>
+                  <span className="shrink-0 tabular-nums text-slate-600">{formatCurrency(item.unit_price)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Separador punteado */}
+          <div className="mx-4 border-t border-dashed border-slate-200" />
+
+          {/* Total + metadata */}
+          <div className="flex items-center justify-between px-4 py-2.5">
+            <div className="text-[11px] text-slate-400 space-y-0.5">
+              {!isMySale && sellerName && (
+                <p>Vendió: <span className="font-semibold text-slate-500">{sellerName}</span></p>
+              )}
+              {collectedByOther && collectorName && (
+                <p>Cobró: <span className="font-semibold text-slate-500">{collectorName}</span></p>
+              )}
+            </div>
+            <p className="text-base font-black tabular-nums text-slate-900">
+              {formatCurrency(Number(d.total_amount))}
+            </p>
           </div>
         </div>
       );
