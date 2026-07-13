@@ -105,12 +105,23 @@ export function useDeliveries(establishmentId: string | null | undefined) {
     [supabase, fetchPendingDebts]
   );
 
+  const deleteDelivery = useCallback(
+    async (deliveryId: string): Promise<void> => {
+      await supabase.from('delivery_items').delete().eq('delivery_id', deliveryId);
+      const { error } = await supabase.from('deliveries').delete().eq('id', deliveryId);
+      if (error) throw new Error(error.message);
+      await fetchPendingDebts();
+    },
+    [supabase, fetchPendingDebts]
+  );
+
   return {
     pendingDebts,
     isLoading,
     isConfirming,
     createDelivery,
     markAsPaid,
+    deleteDelivery,
     refetch: fetchPendingDebts,
   };
 }
