@@ -224,11 +224,12 @@ function RepartoPage() {
   const [ventaProductPage,   setVentaProductPage]    = useState(0);
 
   // ── Historial ───────────────────────────────────────────────
-  const [historial,         setHistorial]         = useState<DeliveryWithCustomer[]>([]);
-  const [historialLoading,  setHistorialLoading]  = useState(false);
-  const [markingPaid,       setMarkingPaid]        = useState<string | null>(null);
-  const [confirmPaidId,     setConfirmPaidId]      = useState<string | null>(null);
-  const [historialProfiles, setHistorialProfiles]  = useState<{ id: string; full_name: string }[]>([]);
+  const [historial,            setHistorial]            = useState<DeliveryWithCustomer[]>([]);
+  const [historialLoading,     setHistorialLoading]     = useState(false);
+  const [markingPaid,          setMarkingPaid]           = useState<string | null>(null);
+  const [confirmPaidId,        setConfirmPaidId]         = useState<string | null>(null);
+  const [historialProfiles,    setHistorialProfiles]     = useState<{ id: string; full_name: string }[]>([]);
+  const [expandedDeliveries,   setExpandedDeliveries]   = useState<Set<string>>(new Set());
 
   interface RepartoGroup {
     tsId:       string;
@@ -1952,78 +1953,98 @@ function RepartoPage() {
   // ─────────────────────────────────────────────────────────────
   if (view === 'historial') {
 
-    // ── Tarjeta de entrega estilo ticket ──────────────────────
+    // ── Tarjeta de entrega estilo ticket (colapsable) ─────────
     const DeliveryCard = ({ d }: { d: DeliveryWithCustomer }) => {
       const sellerName       = historialProfiles.find(p => p.id === d.sold_by)?.full_name;
       const collectorName    = d.paid_by ? historialProfiles.find(p => p.id === d.paid_by)?.full_name : null;
       const isMySale         = d.sold_by === user?.id;
       const collectedByOther = d.paid_by && d.paid_by !== d.sold_by;
       const isPaid           = d.payment_status === 'paid';
+      const isExpanded       = expandedDeliveries.has(d.id);
+
+      function toggleExpand() {
+        setExpandedDeliveries(prev => {
+          const next = new Set(prev);
+          next.has(d.id) ? next.delete(d.id) : next.add(d.id);
+          return next;
+        });
+      }
 
       return (
         <div className={`overflow-hidden rounded-xl border-2 ${
           isPaid ? 'border-green-200 bg-white' : 'border-amber-200 bg-white'
         }`}>
-          {/* Cabecera */}
-          <div className={`flex items-center justify-between px-4 py-2.5 ${
-            isPaid ? 'bg-green-50' : 'bg-amber-50'
-          }`}>
-            <div className="min-w-0">
+          {/* Cabecera — toca para expandir */}
+          <button
+            onClick={toggleExpand}
+            className={`flex w-full items-center justify-between px-4 py-3 text-left ${
+              isPaid ? 'bg-green-50' : 'bg-amber-50'
+            }`}
+          >
+            <div className="min-w-0 flex-1">
               <p className="truncate font-bold text-slate-900">{d.customer?.name}</p>
               <p className="text-[11px] text-slate-500">
                 {new Date(d.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                 {' · '}{payLabel(d.payment_method)}
               </p>
             </div>
-            <div className="shrink-0 pl-3">
+            <div className="flex shrink-0 items-center gap-2 pl-3">
+              <p className="text-sm font-black tabular-nums text-slate-900">
+                {formatCurrency(Number(d.total_amount))}
+              </p>
               {isPaid ? (
                 <CheckCircle2 className="h-5 w-5 text-green-600" />
               ) : (
-                <button
-                  onClick={() => setConfirmPaidId(d.id)}
-                  disabled={markingPaid === d.id}
-                  className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5
-                             text-xs font-bold text-white disabled:opacity-50"
-                >
-                  {markingPaid === d.id
-                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                    : <CheckCircle2 className="h-3 w-3" />}
-                  Cobrar
-                </button>
+                <ChevronDown className={`h-4 w-4 text-amber-500 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
               )}
             </div>
-          </div>
+          </button>
 
-          {/* Líneas de productos */}
-          {d.items && d.items.length > 0 && (
-            <div className="px-4 py-2 space-y-1">
-              {d.items.map(item => (
-                <div key={item.id} className="flex items-baseline gap-2 text-sm">
-                  <span className="w-5 shrink-0 text-right font-bold tabular-nums text-slate-500">{item.quantity}</span>
-                  <span className="flex-1 truncate text-slate-700">{item.product_name}</span>
-                  <span className="shrink-0 tabular-nums text-slate-600">{formatCurrency(item.unit_price)}</span>
+          {/* Detalle expandido */}
+          {isExpanded && (
+            <>
+              {/* Líneas de productos */}
+              {d.items && d.items.length > 0 && (
+                <div className="px-4 py-2 space-y-1">
+                  {d.items.map(item => (
+                    <div key={item.id} className="flex items-baseline gap-2 text-sm">
+                      <span className="w-5 shrink-0 text-right font-bold tabular-nums text-slate-500">{item.quantity}</span>
+                      <span className="flex-1 truncate text-slate-700">{item.product_name}</span>
+                      <span className="shrink-0 tabular-nums text-slate-600">{formatCurrency(item.unit_price)}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+
+              {/* Separador punteado */}
+              <div className="mx-4 border-t border-dashed border-slate-200" />
+
+              {/* Metadata + botón cobrar */}
+              <div className="flex items-center justify-between px-4 py-2.5">
+                <div className="text-[11px] text-slate-400 space-y-0.5">
+                  {!isMySale && sellerName && (
+                    <p>Vendió: <span className="font-semibold text-slate-500">{sellerName}</span></p>
+                  )}
+                  {collectedByOther && collectorName && (
+                    <p>Cobró: <span className="font-semibold text-slate-500">{collectorName}</span></p>
+                  )}
+                </div>
+                {!isPaid && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setConfirmPaidId(d.id); }}
+                    disabled={markingPaid === d.id}
+                    className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5
+                               text-xs font-bold text-white disabled:opacity-50"
+                  >
+                    {markingPaid === d.id
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <CheckCircle2 className="h-3 w-3" />}
+                    Cobrar
+                  </button>
+                )}
+              </div>
+            </>
           )}
-
-          {/* Separador punteado */}
-          <div className="mx-4 border-t border-dashed border-slate-200" />
-
-          {/* Total + metadata */}
-          <div className="flex items-center justify-between px-4 py-2.5">
-            <div className="text-[11px] text-slate-400 space-y-0.5">
-              {!isMySale && sellerName && (
-                <p>Vendió: <span className="font-semibold text-slate-500">{sellerName}</span></p>
-              )}
-              {collectedByOther && collectorName && (
-                <p>Cobró: <span className="font-semibold text-slate-500">{collectorName}</span></p>
-              )}
-            </div>
-            <p className="text-base font-black tabular-nums text-slate-900">
-              {formatCurrency(Number(d.total_amount))}
-            </p>
-          </div>
         </div>
       );
     }
