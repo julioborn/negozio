@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+const LOCALITIES = ['CALCHAQUÍ', 'GALLARETA', 'GÓMEZ CELLO', 'VERA', 'MARGARITA', 'LA CRIOLLA'];
+
 import { zodResolver } from '@hookform/resolvers/zod';
 import { MapPin, Pencil, Phone, Plus, UserCheck, UserX, Users } from 'lucide-react';
 import { useForm } from 'react-hook-form';
@@ -150,11 +152,10 @@ export default function ClientesPage() {
         {error && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
           {([
-            { name: 'name' as const,     label: 'Nombre *',    ph: 'Juan Pérez' },
-            { name: 'locality' as const, label: 'Localidad',   ph: 'Villa Mercedes' },
-            { name: 'barrio' as const,   label: 'Barrio',      ph: 'B° Las Flores' },
-            { name: 'phone' as const,    label: 'Teléfono',    ph: '2664 123456' },
-            { name: 'notes' as const,    label: 'Notas',       ph: 'Observaciones...' },
+            { name: 'name' as const,  label: 'Nombre *', ph: 'Juan Pérez' },
+            { name: 'barrio' as const, label: 'Barrio',   ph: 'B° Las Flores' },
+            { name: 'phone' as const,  label: 'Teléfono', ph: '2664 123456' },
+            { name: 'notes' as const,  label: 'Notas',    ph: 'Observaciones...' },
           ]).map(({ name, label, ph }) => (
             <div key={name} className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-slate-700">{label}</label>
@@ -162,6 +163,13 @@ export default function ClientesPage() {
               {errors[name] && <p className="text-xs text-red-600">{errors[name]?.message}</p>}
             </div>
           ))}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-slate-700">Localidad</label>
+            <select {...register('locality')} className={inp(false)}>
+              <option value="">— Sin localidad —</option>
+              {LOCALITIES.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
           <button type="submit" disabled={isSubmitting}
             className="flex items-center justify-center rounded-lg bg-primary-700 py-2.5 text-sm font-semibold text-white hover:bg-primary-800 disabled:opacity-50">
             {isSubmitting ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear cliente'}

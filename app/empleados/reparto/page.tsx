@@ -25,6 +25,9 @@ import type {
   EstablishmentProductDetail, TravelStockItem,
 } from '@/types/database';
 
+// ─── Localidades fijas ────────────────────────────────────────
+const LOCALITIES = ['CALCHAQUÍ', 'GALLARETA', 'GÓMEZ CELLO', 'VERA', 'MARGARITA', 'LA CRIOLLA'];
+
 // ─── Types ────────────────────────────────────────────────────
 type RepartoView = 'home' | 'scanning' | 'agregar-stock' | 'active' | 'nueva-venta' | 'historial' | 'cierre-reparto';
 type VentaStep   = 'cliente' | 'nuevo-cliente' | 'productos' | 'pago';
@@ -182,7 +185,8 @@ function RepartoPage() {
   // ── Scanning ────────────────────────────────────────────────
   type ScanMode = 'idle' | 'local' | 'external' | 'manual';
   const [scanCart,         setScanCart]         = useState<ScanItem[]>([]);
-  const draftKey = establishmentId ? `reparto-draft-${establishmentId}` : null;
+  const draftKey      = establishmentId ? `reparto-draft-${establishmentId}` : null;
+  const ventaDraftKey = activeTsId       ? `reparto-venta-${activeTsId}`       : null;
   const [barcodeInput,     setBarcodeInput]     = useState('');
   const [scanning,         setScanning]         = useState(false);
   const [scanMode,         setScanMode]         = useState<ScanMode>('idle');
@@ -290,6 +294,31 @@ function RepartoPage() {
       localStorage.removeItem(draftKey);
     }
   }, [scanCart, draftKey]);
+
+  // ── Persistencia de nueva-venta en sessionStorage ─────────────
+  // Guarda el estado mientras el usuario está en la vista
+  useEffect(() => {
+    if (!ventaDraftKey || view !== 'nueva-venta') return;
+    sessionStorage.setItem(ventaDraftKey, JSON.stringify({
+      ventaStep, selectedCustomer, cart, payMethod,
+    }));
+  }, [view, ventaStep, selectedCustomer, cart, payMethod, ventaDraftKey]);
+
+  // Restaura después de que la inicialización termine (page reload / regreso de otra app)
+  useEffect(() => {
+    if (initializing || !ventaDraftKey) return;
+    try {
+      const saved = sessionStorage.getItem(ventaDraftKey);
+      if (!saved) return;
+      const s = JSON.parse(saved);
+      if (s.ventaStep)        setVentaStep(s.ventaStep);
+      if (s.selectedCustomer) setSelectedCustomer(s.selectedCustomer);
+      if (s.cart?.length)     setCart(s.cart);
+      if (s.payMethod)        setPayMethod(s.payMethod);
+      setView('nueva-venta');
+    } catch { /* dato corrupto */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initializing, ventaDraftKey]);
 
   // ── GPS tracking — corre durante todo el reparto activo ───────
   // Guarda en DB cuando el dispositivo se movió > 15m O pasaron > 10s
@@ -775,6 +804,7 @@ function RepartoPage() {
         }).then(() => {});
       }
       setLastVenta({ customer: selectedCustomer, total, method: payMethod });
+      if (ventaDraftKey) sessionStorage.removeItem(ventaDraftKey);
       const updated = await fetchTsItems(activeTsId);
       setTsItems(updated);
       setView('active');
@@ -1745,7 +1775,7 @@ function RepartoPage() {
     return (
       <div className="mx-auto max-w-md p-4 pb-6">
         <div className="mb-5 flex items-center gap-3">
-          <button onClick={() => setView('active')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+          <button onClick={() => { if (ventaDraftKey) sessionStorage.removeItem(ventaDraftKey); setView('active'); }} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h1 className="text-xl font-black text-slate-900">¿A quién le entregás?</h1>
@@ -2330,13 +2360,15 @@ function RepartoPage() {
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Localidad
             </label>
-            <input
+            <select
               value={newClientLocality}
               onChange={e => setNewClientLocality(e.target.value)}
-              placeholder="Ej: San Martín"
-              className="block w-full rounded-xl border border-slate-200 px-4 py-3
+              className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3
                          text-sm focus:border-primary-700 focus:outline-none"
-            />
+            >
+              <option value="">— Sin localidad —</option>
+              {LOCALITIES.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
