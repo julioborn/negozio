@@ -242,8 +242,9 @@ function RepartoPage() {
   const [planStep,          setPlanStep]          = useState<'cliente' | 'productos'>('cliente');
   const [planCustomer,      setPlanCustomer]      = useState<Customer | null>(null);
   const [planCart,          setPlanCart]          = useState<CartItem[]>([]);
-  const [planClientSearch,  setPlanClientSearch]  = useState('');
-  const [planProductSearch, setPlanProductSearch] = useState('');
+  const [planClientSearch,   setPlanClientSearch]   = useState('');
+  const [planProductSearch,  setPlanProductSearch]  = useState('');
+  const [expandedPedidoId,   setExpandedPedidoId]   = useState<string | null>(null);
 
   // ── Historial ───────────────────────────────────────────────
   const [historial,            setHistorial]            = useState<DeliveryWithCustomer[]>([]);
@@ -1933,21 +1934,66 @@ function RepartoPage() {
             <div className="flex flex-col gap-2">
               {plannedDeliveries.map(p => {
                 const pedidoTotal = p.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+                const isExpanded  = expandedPedidoId === p.id;
                 return (
-                  <div key={p.id} className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
-                    <ClipboardList className="h-5 w-5 shrink-0 text-amber-500" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-amber-900">{p.customerName}</p>
-                      <p className="text-xs text-amber-600">
-                        {p.items.length} {p.items.length === 1 ? 'producto' : 'productos'} · {formatCurrency(pedidoTotal)}
-                      </p>
-                    </div>
+                  <div key={p.id} className="overflow-hidden rounded-xl border border-amber-200">
+                    {/* Header tappable */}
                     <button
-                      onClick={() => setPlannedDeliveries(prev => prev.filter(x => x.id !== p.id))}
-                      className="shrink-0 text-amber-300 hover:text-red-500 transition-colors"
+                      onClick={() => setExpandedPedidoId(isExpanded ? null : p.id)}
+                      className="flex w-full items-center gap-3 bg-amber-50 px-3 py-2.5 text-left"
                     >
-                      <X className="h-4 w-4" />
+                      <ClipboardList className="h-5 w-5 shrink-0 text-amber-500" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-amber-900">{p.customerName}</p>
+                        <p className="text-xs text-amber-600">
+                          {p.items.length} {p.items.length === 1 ? 'producto' : 'productos'} · {formatCurrency(pedidoTotal)}
+                        </p>
+                      </div>
+                      <ChevronDown className={`h-4 w-4 shrink-0 text-amber-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                     </button>
+
+                    {/* Detalle expandido */}
+                    {isExpanded && (
+                      <div className="border-t border-amber-200 bg-white">
+                        <div className="px-4 py-2">
+                          {p.items.map((item, idx) => (
+                            <div key={item.epId}
+                              className={`flex items-center justify-between py-2 ${idx > 0 ? 'border-t border-slate-50' : ''}`}
+                            >
+                              <p className="text-sm text-slate-800 truncate flex-1 pr-2">{item.name}</p>
+                              <div className="text-right shrink-0">
+                                <p className="text-xs text-slate-400">{item.quantity} × {formatCurrency(item.unitPrice)}</p>
+                                <p className="text-xs font-bold text-slate-800">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-between border-t border-dashed border-amber-200 bg-amber-50/50 px-4 py-2.5">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                const cust = customers.find(c => c.id === p.customerId) ?? null;
+                                setPlanCustomer(cust);
+                                setPlanCart([...p.items]);
+                                setPlanStep('productos');
+                                setPlanProductSearch('');
+                                setView('planificar-pedido');
+                              }}
+                              className="flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 active:bg-amber-200"
+                            >
+                              <Pencil className="h-3 w-3" /> Editar
+                            </button>
+                            <button
+                              onClick={() => { setPlannedDeliveries(prev => prev.filter(x => x.id !== p.id)); setExpandedPedidoId(null); }}
+                              className="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-600 active:bg-red-100"
+                            >
+                              <X className="h-3 w-3" /> Eliminar
+                            </button>
+                          </div>
+                          <p className="text-sm font-black text-amber-900">{formatCurrency(pedidoTotal)}</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
