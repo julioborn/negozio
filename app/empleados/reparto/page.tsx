@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation';
 
 import {
   AlertTriangle, ArrowLeft, Banknote, Camera, Check, CheckCircle2, ChevronDown,
-  ChevronRight, Clock, CreditCard, History, Loader2, MapPin, Minus, Package,
+  ChevronRight, ClipboardList, Clock, CreditCard, History, Loader2, MapPin, Minus, Package,
   Pencil, Plus, Search, ShoppingCart, Truck, UserPlus, X,
 } from 'lucide-react';
 
@@ -29,7 +29,7 @@ import type {
 const LOCALITIES = ['CALCHAQUÍ', 'GALLARETA', 'GÓMEZ CELLO', 'VERA', 'MARGARITA', 'LA CRIOLLA'];
 
 // ─── Types ────────────────────────────────────────────────────
-type RepartoView = 'home' | 'scanning' | 'agregar-stock' | 'active' | 'nueva-venta' | 'historial' | 'cierre-reparto';
+type RepartoView = 'home' | 'scanning' | 'agregar-stock' | 'active' | 'nueva-venta' | 'historial' | 'cierre-reparto' | 'planificar-pedido';
 type VentaStep   = 'cliente' | 'nuevo-cliente' | 'productos' | 'pago';
 
 interface ScanItem {
@@ -228,6 +228,22 @@ function RepartoPage() {
   const [customerSearch,     setCustomerSearch]      = useState('');
   const [ventaProductSearch, setVentaProductSearch]  = useState('');
   const [ventaProductPage,   setVentaProductPage]    = useState(0);
+  const [pedidoPreloaded,    setPedidoPreloaded]     = useState(false);
+
+  // ── Pedidos planificados ─────────────────────────────────────
+  interface PlannedDelivery {
+    id:           string;
+    customerId:   string;
+    customerName: string;
+    items:        CartItem[];
+  }
+  const pedidosKey = activeTsId ? `reparto-pedidos-${activeTsId}` : null;
+  const [plannedDeliveries, setPlannedDeliveries] = useState<PlannedDelivery[]>([]);
+  const [planStep,          setPlanStep]          = useState<'cliente' | 'productos'>('cliente');
+  const [planCustomer,      setPlanCustomer]      = useState<Customer | null>(null);
+  const [planCart,          setPlanCart]          = useState<CartItem[]>([]);
+  const [planClientSearch,  setPlanClientSearch]  = useState('');
+  const [planProductSearch, setPlanProductSearch] = useState('');
 
   // ── Historial ───────────────────────────────────────────────
   const [historial,            setHistorial]            = useState<DeliveryWithCustomer[]>([]);
@@ -319,6 +335,22 @@ function RepartoPage() {
     } catch { /* dato corrupto */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initializing, ventaDraftKey]);
+
+  // ── Persistencia de pedidos planificados en localStorage ─────
+  useEffect(() => {
+    if (!pedidosKey) { setPlannedDeliveries([]); return; }
+    try {
+      const saved = localStorage.getItem(pedidosKey);
+      if (saved) setPlannedDeliveries(JSON.parse(saved));
+      else setPlannedDeliveries([]);
+    } catch { setPlannedDeliveries([]); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidosKey]);
+
+  useEffect(() => {
+    if (!pedidosKey) return;
+    localStorage.setItem(pedidosKey, JSON.stringify(plannedDeliveries));
+  }, [plannedDeliveries, pedidosKey]);
 
   // ── GPS tracking — corre durante todo el reparto activo ───────
   // Guarda en DB cuando el dispositivo se movió > 15m O pasaron > 10s
@@ -749,6 +781,7 @@ function RepartoPage() {
     setCustomerSearch('');
     setVentaProductSearch('');
     setVentaProductPage(0);
+    setPedidoPreloaded(false);
     setView('nueva-venta');
   }
 
@@ -766,6 +799,38 @@ function RepartoPage() {
   function updateCartQty(epId: string, qty: number) {
     if (qty < 1) { setCart(prev => prev.filter(c => c.epId !== epId)); return; }
     setCart(prev => prev.map(c => c.epId === epId ? { ...c, quantity: qty } : c));
+  }
+
+  function addToPlanCart(item: TravelStockItem) {
+    const remaining = item.quantity_assigned - item.quantity_sold;
+    if (remaining <= 0) return;
+    setPlanCart(prev => {
+      const ex = prev.find(c => c.epId === item.establishment_product_id);
+      if (ex) return prev.map(c => c.epId === item.establishment_product_id
+        ? { ...c, quantity: Math.min(c.quantity + 1, remaining) } : c);
+      return [...prev, { epId: item.establishment_product_id, name: item.product_name, quantity: 1, unitPrice: item.unit_price }];
+    });
+  }
+
+  function updatePlanCartQty(epId: string, qty: number) {
+    if (qty < 1) { setPlanCart(prev => prev.filter(c => c.epId !== epId)); return; }
+    setPlanCart(prev => prev.map(c => c.epId === epId ? { ...c, quantity: qty } : c));
+  }
+
+  function savePedido() {
+    if (!planCustomer || planCart.length === 0) return;
+    const newPedido: PlannedDelivery = {
+      id:           crypto.randomUUID(),
+      customerId:   planCustomer.id,
+      customerName: planCustomer.name,
+      items:        planCart,
+    };
+    setPlannedDeliveries(prev => {
+      const idx = prev.findIndex(p => p.customerId === planCustomer.id);
+      if (idx >= 0) { const u = [...prev]; u[idx] = newPedido; return u; }
+      return [...prev, newPedido];
+    });
+    setView('active');
   }
 
   async function handleConfirmVenta() {
@@ -804,6 +869,8 @@ function RepartoPage() {
         }).then(() => {});
       }
       setLastVenta({ customer: selectedCustomer, total, method: payMethod });
+      // Borrar pedido previo de este cliente (ya ejecutado)
+      setPlannedDeliveries(prev => prev.filter(p => p.customerId !== selectedCustomer.id));
       if (ventaDraftKey) sessionStorage.removeItem(ventaDraftKey);
       const updated = await fetchTsItems(activeTsId);
       setTsItems(updated);
@@ -947,6 +1014,39 @@ function RepartoPage() {
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [filteredCustomers]);
+
+  // ── Clientes y productos para planificar pedidos ─────────────
+  const planFilteredCustomers = useMemo(() => {
+    if (!planClientSearch.trim()) return customers;
+    const q = planClientSearch.toLowerCase();
+    return customers.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      (c.locality ?? '').toLowerCase().includes(q)
+    );
+  }, [customers, planClientSearch]);
+
+  const planGroupedCustomers = useMemo(() => {
+    const map = new Map<string, Customer[]>();
+    for (const c of planFilteredCustomers) {
+      const key = c.locality || 'Sin localidad';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [planFilteredCustomers]);
+
+  const sortedPlanSearchResults = useMemo(() => {
+    if (!planProductSearch.trim()) return [];
+    const q = planProductSearch.toLowerCase();
+    return [...tsItems]
+      .filter(i => i.product_name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const aStarts = a.product_name.toLowerCase().startsWith(q) ? 0 : 1;
+        const bStarts = b.product_name.toLowerCase().startsWith(q) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return a.product_name.localeCompare(b.product_name);
+      });
+  }, [tsItems, planProductSearch]);
 
   // ── Filtro de productos existentes ──────────────────────────
   const filteredEpProducts = useMemo(() => {
@@ -1803,6 +1903,291 @@ function RepartoPage() {
             </div>
           </div>
         )}
+
+        {/* Pedidos del día */}
+        <div className="mt-6">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Pedidos del día
+            </p>
+            <button
+              onClick={() => {
+                setPlanStep('cliente');
+                setPlanCustomer(null);
+                setPlanCart([]);
+                setPlanClientSearch('');
+                setPlanProductSearch('');
+                setView('planificar-pedido');
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-primary-200
+                         bg-primary-50 px-2.5 py-1.5 text-xs font-semibold text-primary-700
+                         active:bg-primary-100"
+            >
+              <Plus className="h-3.5 w-3.5" /> Nuevo pedido
+            </button>
+          </div>
+
+          {plannedDeliveries.length === 0 ? (
+            <p className="py-2 text-xs text-slate-400">Sin pedidos planificados — agregá uno antes de salir</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {plannedDeliveries.map(p => {
+                const pedidoTotal = p.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+                return (
+                  <div key={p.id} className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                    <ClipboardList className="h-5 w-5 shrink-0 text-amber-500" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-amber-900">{p.customerName}</p>
+                      <p className="text-xs text-amber-600">
+                        {p.items.length} {p.items.length === 1 ? 'producto' : 'productos'} · {formatCurrency(pedidoTotal)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setPlannedDeliveries(prev => prev.filter(x => x.id !== p.id))}
+                      className="shrink-0 text-amber-300 hover:text-red-500 transition-colors"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // PLANIFICAR PEDIDO
+  // ─────────────────────────────────────────────────────────────
+  if (view === 'planificar-pedido') {
+    const planCartTotal = planCart.reduce((s, c) => s + c.unitPrice * c.quantity, 0);
+
+    if (planStep === 'cliente') {
+      return (
+        <div className="mx-auto max-w-md p-4 pb-6">
+          <div className="mb-5 flex items-center gap-3">
+            <button onClick={() => setView('active')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <h1 className="text-xl font-black text-slate-900">Nuevo pedido</h1>
+              <p className="text-xs text-slate-500">¿Para qué cliente?</p>
+            </div>
+          </div>
+
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              autoFocus
+              value={planClientSearch}
+              onChange={e => setPlanClientSearch(e.target.value)}
+              placeholder="Buscar cliente…"
+              className="block w-full rounded-xl border border-slate-200 py-3 pl-9 pr-4
+                         text-sm focus:border-primary-700 focus:outline-none"
+            />
+          </div>
+
+          {customersLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {planGroupedCustomers.map(([locality, group]) => (
+                <div key={locality}>
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{locality}</p>
+                    {/* Indicador si ya tiene pedido */}
+                  </div>
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    {group.map((c, i) => {
+                      const tienePedido = plannedDeliveries.some(p => p.customerId === c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          onClick={() => {
+                            setPlanCustomer(c);
+                            // Si ya tiene pedido, pre-cargar items para editar
+                            const existing = plannedDeliveries.find(p => p.customerId === c.id);
+                            setPlanCart(existing ? [...existing.items] : []);
+                            setPlanStep('productos');
+                          }}
+                          className={`flex w-full items-center justify-between px-4 py-3 text-left
+                                      hover:bg-slate-50 active:bg-primary-50
+                                      ${i > 0 ? 'border-t border-slate-50' : ''}`}
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{c.name}</p>
+                            {c.barrio && <p className="text-xs text-slate-400">{c.barrio}</p>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {tienePedido && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                                Pedido
+                              </span>
+                            )}
+                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {planGroupedCustomers.length === 0 && (
+                <p className="py-10 text-center text-sm text-slate-400">No se encontraron clientes</p>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // planStep === 'productos'
+    return (
+      <div className="mx-auto max-w-md p-4 pb-36">
+        <div className="mb-4 flex items-center gap-3">
+          <button onClick={() => setPlanStep('cliente')} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h1 className="text-xl font-black text-slate-900">{planCustomer?.name}</h1>
+            <p className="text-xs text-slate-500">Seleccioná los productos del pedido</p>
+          </div>
+        </div>
+
+        {/* Buscador con autocomplete */}
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 z-10" />
+          <input
+            value={planProductSearch}
+            onChange={e => setPlanProductSearch(e.target.value)}
+            placeholder="Buscar producto…"
+            className="block w-full rounded-xl border border-slate-200 bg-white
+                       py-2.5 pl-9 pr-4 text-sm focus:border-primary-700 focus:outline-none"
+          />
+          {planProductSearch && (
+            <button onClick={() => setPlanProductSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 z-10">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+
+          {/* Dropdown autocomplete */}
+          {planProductSearch.trim() && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+              {sortedPlanSearchResults.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-slate-400">Sin resultados</p>
+              ) : (
+                sortedPlanSearchResults.map(item => {
+                  const remaining = item.quantity_assigned - item.quantity_sold;
+                  const inCart    = planCart.find(c => c.epId === item.establishment_product_id);
+                  return (
+                    <div key={item.id}
+                      className={`flex items-center justify-between px-4 py-3 border-b border-slate-50 last:border-0 ${remaining <= 0 ? 'opacity-40' : ''}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900">{item.product_name}</p>
+                        <p className="text-xs text-slate-400">{formatCurrency(item.unit_price)} · quedan {remaining}</p>
+                      </div>
+                      {remaining > 0 && (
+                        <div className="flex items-center gap-2 shrink-0 ml-3">
+                          {inCart ? (
+                            <>
+                              <button onClick={() => updatePlanCartQty(item.establishment_product_id, inCart.quantity - 1)}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white">
+                                <Minus className="h-3.5 w-3.5" />
+                              </button>
+                              <span className="w-6 text-center text-sm font-black tabular-nums">{inCart.quantity}</span>
+                              <button onClick={() => updatePlanCartQty(item.establishment_product_id, Math.min(inCart.quantity + 1, remaining))}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white">
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <button onClick={() => addToPlanCart(item)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white">
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Lista de productos */}
+        {!planProductSearch.trim() && (
+          <div className="flex flex-col gap-2">
+            {tsItems.map(item => {
+              const remaining = item.quantity_assigned - item.quantity_sold;
+              const inCart    = planCart.find(c => c.epId === item.establishment_product_id);
+              return (
+                <div key={item.id}
+                  className={`flex items-center gap-3 rounded-xl border px-4 py-3 bg-white ${
+                    remaining <= 0 ? 'border-slate-100 opacity-40'
+                    : inCart ? 'border-primary-300 bg-primary-50' : 'border-slate-200'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900">{item.product_name}</p>
+                    <p className="text-xs text-slate-400">{formatCurrency(item.unit_price)} · quedan {remaining}</p>
+                  </div>
+                  {remaining > 0 && (
+                    <div className="flex items-center gap-2">
+                      {inCart ? (
+                        <>
+                          <button onClick={() => updatePlanCartQty(item.establishment_product_id, inCart.quantity - 1)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white">
+                            <Minus className="h-3.5 w-3.5" />
+                          </button>
+                          <span className="w-8 text-center text-base font-black tabular-nums">{inCart.quantity}</span>
+                          <button onClick={() => updatePlanCartQty(item.establishment_product_id, Math.min(inCart.quantity + 1, remaining))}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white">
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => addToPlanCart(item)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white">
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Botón guardar pedido */}
+        {planCart.length > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 border-t border-slate-100 bg-white/95 p-4 backdrop-blur-sm">
+            <div className="mx-auto max-w-md">
+              <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+                <span>{planCart.reduce((s, c) => s + c.quantity, 0)} unidades</span>
+                <span className="font-bold text-slate-900">{formatCurrency(planCartTotal)}</span>
+              </div>
+              <button
+                onClick={savePedido}
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl
+                           bg-amber-500 text-base font-black text-white
+                           transition-transform active:scale-[0.97]"
+              >
+                <ClipboardList className="h-5 w-5" />
+                Guardar pedido para {planCustomer?.name?.split(' ')[0]}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1860,7 +2245,24 @@ function RepartoPage() {
                   {group.map((c, i) => (
                     <button
                       key={c.id}
-                      onClick={() => { setSelectedCustomer(c); setVentaStep('productos'); }}
+                      onClick={() => {
+                        setSelectedCustomer(c);
+                        const pedido = plannedDeliveries.find(p => p.customerId === c.id);
+                        if (pedido) {
+                          const preCart = pedido.items.map(pi => {
+                            const tsItem = tsItems.find(t => t.establishment_product_id === pi.epId);
+                            if (!tsItem) return null;
+                            const remaining = tsItem.quantity_assigned - tsItem.quantity_sold;
+                            if (remaining <= 0) return null;
+                            return { ...pi, quantity: Math.min(pi.quantity, remaining) };
+                          }).filter((x): x is CartItem => x !== null);
+                          setCart(preCart);
+                          setPedidoPreloaded(preCart.length > 0);
+                        } else {
+                          setPedidoPreloaded(false);
+                        }
+                        setVentaStep('productos');
+                      }}
                       className={`flex w-full items-center justify-between px-4 py-3 text-left
                                   hover:bg-slate-50 active:bg-primary-50
                                   ${i > 0 ? 'border-t border-slate-50' : ''}`}
@@ -1910,6 +2312,22 @@ function RepartoPage() {
             <p className="text-xs text-slate-500">Seleccioná los productos</p>
           </div>
         </div>
+
+        {/* Banner pedido previo */}
+        {pedidoPreloaded && (
+          <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 shrink-0 text-amber-600" />
+              <p className="text-xs font-semibold text-amber-800">Pedido previo cargado — podés editar</p>
+            </div>
+            <button
+              onClick={() => { setCart([]); setPedidoPreloaded(false); }}
+              className="text-amber-400 hover:text-red-500"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         {/* Buscador con autocomplete */}
         <div className="relative mb-3">
