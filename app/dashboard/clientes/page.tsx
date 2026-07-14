@@ -5,7 +5,7 @@ import { useState } from 'react';
 const LOCALITIES = ['CALCHAQUÍ', 'GALLARETA', 'GÓMEZ CELLO', 'VERA', 'MARGARITA', 'LA CRIOLLA'];
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { MapPin, Pencil, Phone, Plus, UserCheck, UserX, Users } from 'lucide-react';
+import { Loader2, MapPin, Pencil, Phone, Plus, Trash2, UserCheck, UserX, Users } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 
@@ -27,12 +27,14 @@ type FormData = z.infer<typeof schema>;
 export default function ClientesPage() {
   const { user } = useAuth();
   const establishmentId = user?.establishment_id ?? null;
-  const { customers, isLoading, createCustomer, updateCustomer, setActive } =
+  const { customers, isLoading, createCustomer, updateCustomer, setActive, deleteCustomer } =
     useCustomers(establishmentId);
 
-  const [editing, setEditing] = useState<Customer | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [editing,          setEditing]          = useState<Customer | null>(null);
+  const [modalOpen,        setModalOpen]        = useState(false);
+  const [error,            setError]            = useState<string | null>(null);
+  const [confirmDeleteId,  setConfirmDeleteId]  = useState<string | null>(null);
+  const [deleting,         setDeleting]         = useState<string | null>(null);
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } =
     useForm<FormData>({ resolver: zodResolver(schema) });
@@ -49,6 +51,14 @@ export default function ClientesPage() {
     setEditing(c);
     setError(null);
     setModalOpen(true);
+  }
+
+  async function handleDelete(id: string) {
+    setConfirmDeleteId(null);
+    setDeleting(id);
+    try { await deleteCustomer(id); }
+    catch (err) { alert(err instanceof Error ? err.message : 'Error al eliminar'); }
+    finally { setDeleting(null); }
   }
 
   async function onSubmit(data: FormData) {
@@ -132,14 +142,46 @@ export default function ClientesPage() {
                                   : 'text-slate-400 hover:bg-green-50 hover:text-green-500')}>
                     {c.is_active ? <UserCheck className="h-4 w-4" /> : <UserX className="h-4 w-4" />}
                   </button>
+                  <button
+                    onClick={() => setConfirmDeleteId(c.id === confirmDeleteId ? null : c.id)}
+                    disabled={deleting === c.id}
+                    className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors disabled:opacity-40"
+                  >
+                    {deleting === c.id
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Trash2 className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
+
               {c.total_debt > 0 && (
                 <div className="flex items-center justify-between rounded-lg bg-red-50 px-3 py-1.5">
                   <span className="text-xs font-medium text-red-700">Deuda pendiente</span>
                   <span className="text-sm font-bold text-red-700 tabular-nums">
                     {formatCurrency(c.total_debt)}
                   </span>
+                </div>
+              )}
+
+              {confirmDeleteId === c.id && (
+                <div className="flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
+                  <p className="text-xs text-red-700 font-medium">
+                    ¿Eliminar a <strong>{c.name}</strong>? Se borrarán también todas sus deudas y ventas. No se puede deshacer.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="flex-1 rounded-lg border border-slate-200 bg-white py-1.5 text-xs font-semibold text-slate-600"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => handleDelete(c.id)}
+                      className="flex-1 rounded-lg bg-red-600 py-1.5 text-xs font-bold text-white"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

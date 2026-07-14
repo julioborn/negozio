@@ -66,5 +66,21 @@ export function useCustomers(establishmentId: string | null | undefined) {
     [supabase]
   );
 
-  return { customers, isLoading, createCustomer, updateCustomer, setActive, refetch: fetchCustomers };
+  const deleteCustomer = useCallback(
+    async (id: string): Promise<void> => {
+      // Borrar delivery_items → deliveries → customer en cascada
+      const { data: dels } = await supabase.from('deliveries').select('id').eq('customer_id', id);
+      const delIds = (dels ?? []).map((d: { id: string }) => d.id);
+      if (delIds.length > 0) {
+        await supabase.from('delivery_items').delete().in('delivery_id', delIds);
+        await supabase.from('deliveries').delete().in('id', delIds);
+      }
+      const { error } = await supabase.from('customers').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+      setCustomers((prev) => prev.filter((c) => c.id !== id));
+    },
+    [supabase]
+  );
+
+  return { customers, isLoading, createCustomer, updateCustomer, setActive, deleteCustomer, refetch: fetchCustomers };
 }
