@@ -16,7 +16,7 @@ import { useCustomers } from '@/hooks/useCustomers';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
 import { Modal } from '@/components/ui/Modal';
-import { ContentInput, KeyboardInput, NumPad } from '@/components/ui/SoftKeyboard';
+import { ContentInput, NumPad } from '@/components/ui/SoftKeyboard';
 import dynamic from 'next/dynamic';
 const CameraScanner = dynamic(() => import('@/components/ui/CameraScanner'), { ssr: false });
 import { lookupBarcode } from '@/lib/utils/barcode-lookup';
@@ -965,6 +965,20 @@ function RepartoPage() {
     return tsItems.filter(i => i.product_name.toLowerCase().includes(q));
   }, [tsItems, ventaProductSearch]);
 
+  // Resultados de búsqueda ordenados por relevancia (autocomplete dropdown)
+  const sortedSearchResults = useMemo(() => {
+    if (!ventaProductSearch.trim()) return [];
+    const q = ventaProductSearch.toLowerCase();
+    return [...tsItems]
+      .filter(i => i.product_name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const aStarts = a.product_name.toLowerCase().startsWith(q) ? 0 : 1;
+        const bStarts = b.product_name.toLowerCase().startsWith(q) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return a.product_name.localeCompare(b.product_name);
+      });
+  }, [tsItems, ventaProductSearch]);
+
   // Reset página al buscar en venta
   useEffect(() => { setVentaProductPage(0); }, [ventaProductSearch]);
 
@@ -1237,10 +1251,17 @@ function RepartoPage() {
               />
               <div>
                 <label className="text-xs font-medium text-primary-600">Precio de venta ($)</label>
-                <div className="flex items-center rounded-xl border border-primary-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
-                  {scanLocalPrice || <span className="text-slate-400">0</span>}
-                </div>
-                <NumPad value={scanLocalPrice} onChange={setScanLocalPrice} />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={scanLocalPrice}
+                  onChange={e => {
+                    const v = e.target.value.replace(',', '.');
+                    if (/^\d*\.?\d*$/.test(v)) setScanLocalPrice(v);
+                  }}
+                  placeholder="0.00"
+                  className="block w-full rounded-xl border border-primary-200 bg-white px-3 py-2.5 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-primary-300"
+                />
               </div>
             </div>
             <QtyControl
@@ -1267,13 +1288,15 @@ function RepartoPage() {
                   className="block w-full rounded-xl border border-blue-200 bg-white/70 px-3 py-2 text-sm font-mono text-slate-600 select-all"
                 />
               </div>
-              <KeyboardInput
-                label="Nombre"
-                value={externalInfo.name}
-                onChange={v => setExternalInfo(prev => prev ? { ...prev, name: v } : prev)}
-                labelClass="text-xs text-blue-600"
-                borderClass="border-blue-200"
-              />
+              <div>
+                <label className="text-xs text-blue-600">Nombre</label>
+                <input
+                  type="text"
+                  value={externalInfo.name}
+                  onChange={e => setExternalInfo(prev => prev ? { ...prev, name: e.target.value } : prev)}
+                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
               <ContentInput
                 label="Contenido del envase"
                 qty={netQty}
@@ -1285,10 +1308,17 @@ function RepartoPage() {
               />
               <div>
                 <label className="text-xs text-blue-600">Precio de venta ($)</label>
-                <div className="flex items-center rounded-xl border border-blue-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
-                  {scanPrice || <span className="text-slate-400">0</span>}
-                </div>
-                <NumPad value={scanPrice} onChange={setScanPrice} />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={scanPrice}
+                  onChange={e => {
+                    const v = e.target.value.replace(',', '.');
+                    if (/^\d*\.?\d*$/.test(v)) setScanPrice(v);
+                  }}
+                  placeholder="0.00"
+                  className="block w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
               </div>
             </div>
             <QtyControl
@@ -1316,14 +1346,16 @@ function RepartoPage() {
                   className="block w-full rounded-xl border border-amber-200 bg-white/70 px-3 py-2 text-sm font-mono text-slate-600 select-all"
                 />
               </div>
-              <KeyboardInput
-                label="Nombre del producto"
-                value={scanManualName}
-                onChange={setScanManualName}
-                placeholder="Ej: Gaseosa Cola"
-                labelClass="text-xs text-amber-700"
-                borderClass="border-amber-200"
-              />
+              <div>
+                <label className="text-xs text-amber-700">Nombre del producto</label>
+                <input
+                  type="text"
+                  value={scanManualName}
+                  onChange={e => setScanManualName(e.target.value)}
+                  placeholder="Ej: Gaseosa Cola"
+                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
+                />
+              </div>
               <ContentInput
                 label="Contenido del envase (opcional)"
                 qty={netQty}
@@ -1335,10 +1367,17 @@ function RepartoPage() {
               />
               <div>
                 <label className="text-xs text-amber-700">Precio de venta ($)</label>
-                <div className="flex items-center rounded-xl border border-amber-200 bg-white px-3 py-2 text-base font-semibold min-h-[42px]">
-                  {scanPrice || <span className="text-slate-400">0</span>}
-                </div>
-                <NumPad value={scanPrice} onChange={setScanPrice} />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={scanPrice}
+                  onChange={e => {
+                    const v = e.target.value.replace(',', '.');
+                    if (/^\d*\.?\d*$/.test(v)) setScanPrice(v);
+                  }}
+                  placeholder="0.00"
+                  className="block w-full rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-amber-200"
+                />
               </div>
             </div>
             <QtyControl
@@ -1872,9 +1911,9 @@ function RepartoPage() {
           </div>
         </div>
 
-        {/* Buscador */}
+        {/* Buscador con autocomplete */}
         <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 z-10" />
           <input
             value={ventaProductSearch}
             onChange={e => setVentaProductSearch(e.target.value)}
@@ -1885,10 +1924,67 @@ function RepartoPage() {
           {ventaProductSearch && (
             <button
               onClick={() => setVentaProductSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 z-10"
             >
               <X className="h-4 w-4" />
             </button>
+          )}
+
+          {/* Dropdown de resultados */}
+          {ventaProductSearch.trim() && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+              {sortedSearchResults.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-slate-400">Sin resultados</p>
+              ) : (
+                sortedSearchResults.map(item => {
+                  const remaining = item.quantity_assigned - item.quantity_sold;
+                  const inCart    = cart.find(c => c.epId === item.establishment_product_id);
+                  return (
+                    <div
+                      key={item.id}
+                      className={`flex items-center justify-between px-4 py-3 border-b border-slate-50 last:border-0 ${
+                        remaining <= 0 ? 'opacity-40' : ''
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900">{item.product_name}</p>
+                        <p className="text-xs text-slate-400">
+                          {formatCurrency(item.unit_price)} · quedan {remaining}
+                        </p>
+                      </div>
+                      {remaining > 0 && (
+                        <div className="flex items-center gap-2 shrink-0 ml-3">
+                          {inCart ? (
+                            <>
+                              <button
+                                onClick={() => updateCartQty(item.establishment_product_id, inCart.quantity - 1)}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white"
+                              >
+                                <Minus className="h-3.5 w-3.5" />
+                              </button>
+                              <span className="w-6 text-center text-sm font-black tabular-nums">{inCart.quantity}</span>
+                              <button
+                                onClick={() => updateCartQty(item.establishment_product_id, Math.min(inCart.quantity + 1, remaining))}
+                                className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => addToCart(item)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-700 text-white"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           )}
         </div>
 
