@@ -6,9 +6,9 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import {
-  AlertTriangle, ArrowLeft, Banknote, Camera, CheckCircle2, ChevronDown,
+  AlertTriangle, ArrowLeft, Banknote, Camera, Check, CheckCircle2, ChevronDown,
   ChevronRight, Clock, CreditCard, History, Loader2, MapPin, Minus, Package,
-  Plus, Search, ShoppingCart, Truck, UserPlus, X,
+  Pencil, Plus, Search, ShoppingCart, Truck, UserPlus, X,
 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/useAuth';
@@ -256,6 +256,10 @@ function RepartoPage() {
   const [newClientBarrio,   setNewClientBarrio]   = useState('');
   const [newClientPhone,    setNewClientPhone]    = useState('');
   const [savingClient,      setSavingClient]      = useState(false);
+
+  // ── Edición de precio en reparto activo ──────────────────────
+  const [editPriceItem,  setEditPriceItem]  = useState<{ itemId: string; epId: string | null; value: string } | null>(null);
+  const [savingItemPrice, setSavingItemPrice] = useState(false);
 
   // ── Cierre del reparto ────────────────────────────────────────
   interface DeliveryFull extends DeliveryWithCustomer { items: DeliveryItem[]; }
@@ -665,6 +669,20 @@ function RepartoPage() {
   }
 
   // ── Close reparto ────────────────────────────────────────────
+  async function saveItemPrice() {
+    if (!editPriceItem) return;
+    const price = parseFloat(editPriceItem.value.replace(',', '.'));
+    if (isNaN(price) || price <= 0) return;
+    setSavingItemPrice(true);
+    await supabase.from('travel_stock_items').update({ unit_price: price }).eq('id', editPriceItem.itemId);
+    if (editPriceItem.epId) {
+      await supabase.from('establishment_products').update({ price }).eq('id', editPriceItem.epId);
+    }
+    setTsItems(prev => prev.map(it => it.id === editPriceItem.itemId ? { ...it, unit_price: price } : it));
+    setSavingItemPrice(false);
+    setEditPriceItem(null);
+  }
+
   async function handleCloseReparto() {
     if (!activeTsId) return;
     setCierreClosing(true);
@@ -1649,25 +1667,67 @@ function RepartoPage() {
             </p>
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
               {tsItems.map((item, i) => {
-                const remaining = item.quantity_assigned - item.quantity_sold;
+                const remaining  = item.quantity_assigned - item.quantity_sold;
+                const isEditing  = editPriceItem?.itemId === item.id;
                 return (
-                  <div
-                    key={item.id}
-                    className={`flex items-center justify-between px-4 py-3 ${i > 0 ? 'border-t border-slate-50' : ''} ${
+                  <div key={item.id} className={i > 0 ? 'border-t border-slate-100' : ''}>
+                    <div className={`flex items-center justify-between px-4 py-3 ${
                       remaining === 0 ? 'bg-red-50/60' : 'bg-green-50/60'
-                    }`}
-                  >
-                    <p className="text-sm font-medium text-slate-800">
-                      {item.product_name}
-                    </p>
-                    <div className="flex gap-4 text-xs tabular-nums">
-                      <span className="text-slate-400">
-                        vendidos: {item.quantity_sold}
-                      </span>
-                      <span className={`font-bold ${remaining === 0 ? 'text-red-400' : 'text-emerald-600'}`}>
-                        quedan: {remaining}
-                      </span>
+                    }`}>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-800">{item.product_name}</p>
+                        {/* Precio — toca para editar */}
+                        {isEditing ? (
+                          <span className="text-xs font-bold text-primary-700">
+                            ${editPriceItem!.value || '0'}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setEditPriceItem({ itemId: item.id, epId: item.establishment_product_id, value: String(item.unit_price) })}
+                            className="flex items-center gap-1 text-xs text-slate-400 hover:text-primary-700 transition-colors"
+                          >
+                            {formatCurrency(item.unit_price)} c/u
+                            <Pencil className="h-3 w-3 opacity-60" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs tabular-nums">
+                        <span className="text-slate-400">vendidos: {item.quantity_sold}</span>
+                        <span className={`font-bold ${remaining === 0 ? 'text-red-400' : 'text-emerald-600'}`}>
+                          quedan: {remaining}
+                        </span>
+                      </div>
                     </div>
+
+                    {/* Editor de precio inline */}
+                    {isEditing && (
+                      <div className="border-t border-primary-100 bg-primary-50 px-4 py-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-primary-700">Nuevo precio</span>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={saveItemPrice}
+                              disabled={savingItemPrice || !editPriceItem.value || parseFloat(editPriceItem.value) <= 0}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-700 text-white disabled:opacity-50"
+                            >
+                              {savingItemPrice
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <Check className="h-3.5 w-3.5" />}
+                            </button>
+                            <button
+                              onClick={() => setEditPriceItem(null)}
+                              className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <NumPad
+                          value={editPriceItem.value}
+                          onChange={v => setEditPriceItem(prev => prev ? { ...prev, value: v } : prev)}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
