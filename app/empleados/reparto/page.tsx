@@ -182,6 +182,7 @@ function RepartoPage() {
   // ── Scanning ────────────────────────────────────────────────
   type ScanMode = 'idle' | 'local' | 'external' | 'manual';
   const [scanCart,         setScanCart]         = useState<ScanItem[]>([]);
+  const draftKey = establishmentId ? `reparto-draft-${establishmentId}` : null;
   const [barcodeInput,     setBarcodeInput]     = useState('');
   const [scanning,         setScanning]         = useState(false);
   const [scanMode,         setScanMode]         = useState<ScanMode>('idle');
@@ -261,6 +262,30 @@ function RepartoPage() {
   const [cierreDeliveries, setCierreDeliveries] = useState<DeliveryFull[]>([]);
   const [cierreLoading,    setCierreLoading]    = useState(false);
   const [cierreClosing,    setCierreClosing]    = useState(false);
+
+  // ── Persistencia del borrador de carga en localStorage ────────
+  // Restaura al montar (solo si no hay reparto activo)
+  useEffect(() => {
+    if (!draftKey || activeTsId) return;
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (saved) {
+        const items = JSON.parse(saved) as ScanItem[];
+        if (items.length > 0) setScanCart(items);
+      }
+    } catch { /* dato corrupto — ignorar */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  // Auto-guarda cada vez que cambia el carrito
+  useEffect(() => {
+    if (!draftKey) return;
+    if (scanCart.length > 0) {
+      localStorage.setItem(draftKey, JSON.stringify(scanCart));
+    } else {
+      localStorage.removeItem(draftKey);
+    }
+  }, [scanCart, draftKey]);
 
   // ── GPS tracking — corre durante todo el reparto activo ───────
   // Guarda en DB cuando el dispositivo se movió > 15m O pasaron > 10s
