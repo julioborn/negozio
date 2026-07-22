@@ -96,8 +96,11 @@ export function useDeliveries(establishmentId: string | null | undefined) {
 
   const markAsPaid = useCallback(
     async (deliveryId: string): Promise<void> => {
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData.user?.id ?? null;
       const { error } = await supabase.rpc('mark_delivery_paid', {
         p_delivery_id: deliveryId,
+        p_paid_by:     userId,
       });
       if (error) throw new Error(error.message);
       await fetchPendingDebts();
