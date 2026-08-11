@@ -39,7 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/dashboard',                    label: 'Inicio',        icon: Home,        roles: ['owner'], exact: true },
       { href: '/dashboard/productos',          label: 'Productos',     icon: BoxesIcon,   roles: ['owner', 'employee'] },
       { href: '/caja',                         label: 'Caja',          icon: ShoppingCart,roles: ['owner', 'cashier'] },
-      { href: '/empleados/ingreso-mercaderia', label: 'Stock', icon: PackagePlus, roles: ['owner'] },
+      { href: '/empleados/ingreso-mercaderia', label: 'Stock', icon: PackagePlus, roles: ['owner', 'employee'] },
     ],
   },
   {
@@ -47,8 +47,8 @@ const NAV_GROUPS: NavGroup[] = [
     links: [
       { href: '/empleados/reparto',  label: 'Reparto',   icon: Truck,      roles: ['owner', 'employee'] },
       { href: '/dashboard/repartos', label: 'Historial', icon: DollarSign, roles: ['owner', 'employee'] },
-      { href: '/dashboard/clientes', label: 'Clientes',      icon: Users,      roles: ['owner'] },
-      { href: '/dashboard/cobros',   label: 'Cobros',        icon: Receipt,    roles: ['owner'] },
+      { href: '/dashboard/clientes', label: 'Clientes',      icon: Users,      roles: ['owner', 'employee'] },
+      { href: '/dashboard/cobros',   label: 'Cobros',        icon: Receipt,    roles: ['owner', 'employee'] },
     ],
   },
   {
