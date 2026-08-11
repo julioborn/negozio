@@ -7,9 +7,14 @@ import type { UserRole } from '@/types/database';
 import { ROLE_HOME } from './constants';
 
 // Roles autorizados por prefijo de ruta
+// Las rutas más específicas deben ir ANTES que la general /dashboard
 const ROUTE_ROLES: Record<string, UserRole[]> = {
+  '/dashboard/productos':  ['owner', 'employee'],
+  '/dashboard/repartos':   ['owner', 'employee'],
+  '/dashboard/clientes':   ['owner', 'employee'],
+  '/dashboard/cobros':     ['owner', 'employee'],
   '/dashboard': ['owner'],
-  '/caja': ['owner', 'cashier'],
+  '/caja':      ['owner', 'cashier'],
   '/empleados': ['owner', 'employee'],
 };
 
