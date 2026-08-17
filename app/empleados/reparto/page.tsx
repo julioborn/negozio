@@ -195,6 +195,7 @@ function RepartoPage() {
   const [scanQty,          setScanQty]          = useState(1);
   const [scanPrice,        setScanPrice]        = useState('');
   const [scanLocalPrice,   setScanLocalPrice]   = useState('');
+  const [scanLocalName,    setScanLocalName]    = useState('');
   const [scanManualName,   setScanManualName]   = useState('');
   const [netQty,           setNetQty]           = useState('');
   const [netUnit,          setNetUnit]          = useState('');
@@ -525,6 +526,7 @@ function RepartoPage() {
       setScanMode('local');
       setScanQty(1);
       setScanLocalPrice(String(local.price));
+      setScanLocalName(local.name);
       const lp = parseNetContent(local.net_content ?? '');
       setNetQty(lp.qty); setNetUnit(lp.unit);
       setScanning(false);
@@ -558,6 +560,7 @@ function RepartoPage() {
     setScanQty(1);
     setScanPrice('');
     setScanLocalPrice('');
+    setScanLocalName('');
     setScanManualName('');
     setNetQty(''); setNetUnit('');
     setTimeout(() => barcodeRef.current?.focus(), 100);
@@ -568,6 +571,7 @@ function RepartoPage() {
     if (!scannedProduct || scanQty < 1) return;
     const newPrice = parseFloat(scanLocalPrice.replace(',', '.'));
     const effectivePrice = (!isNaN(newPrice) && newPrice > 0) ? newPrice : scannedProduct.price;
+    const effectiveName  = scanLocalName.trim() || scannedProduct.name;
 
     // Guardar el último precio en DB si cambió
     if (!isNaN(newPrice) && newPrice > 0 && newPrice !== scannedProduct.price) {
@@ -575,6 +579,14 @@ function RepartoPage() {
         .from('establishment_products')
         .update({ price: newPrice })
         .eq('id', scannedProduct.id);
+    }
+
+    // Guardar nombre en DB si cambió
+    if (effectiveName !== scannedProduct.name) {
+      await supabase
+        .from('products')
+        .update({ name: effectiveName })
+        .eq('id', scannedProduct.product_id);
     }
 
     // Guardar net_content si cambió
@@ -586,7 +598,7 @@ function RepartoPage() {
         .eq('id', scannedProduct.product_id);
     }
 
-    const productWithPrice = { ...scannedProduct, price: effectivePrice };
+    const productWithPrice = { ...scannedProduct, price: effectivePrice, name: effectiveName };
     setScanCart(prev => {
       const ex = prev.find(i => i.product.id === scannedProduct.id);
       if (ex) return prev.map(i => i.product.id === scannedProduct.id ? { ...i, quantity: i.quantity + scanQty } : i);
@@ -1330,8 +1342,6 @@ function RepartoPage() {
         {scanMode === 'local' && scannedProduct && (
           <div className="mb-4 rounded-2xl border-2 border-primary-200 bg-primary-50 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-primary-500 mb-1">Producto encontrado</p>
-            <p className="font-bold text-primary-900">{scannedProduct.name}</p>
-            {scannedProduct.brand && <p className="text-xs text-primary-500">{scannedProduct.brand}</p>}
             <div className="mt-2 mb-3 space-y-2">
               <div>
                 <label className="text-xs font-medium text-primary-600">Código de barras</label>
@@ -1339,6 +1349,15 @@ function RepartoPage() {
                   readOnly
                   value={scannedProduct.barcode}
                   className="block w-full rounded-xl border border-primary-200 bg-white/70 px-3 py-2 text-sm font-mono text-slate-600 select-all"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-primary-600">Nombre del producto</label>
+                <input
+                  type="text"
+                  value={scanLocalName}
+                  onChange={e => setScanLocalName(e.target.value)}
+                  className="block w-full rounded-xl border border-primary-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
                 />
               </div>
               <ContentInput
