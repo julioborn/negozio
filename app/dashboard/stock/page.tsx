@@ -186,16 +186,11 @@ export default function CargaStockPage() {
     setSaving(true); setFormError(null);
     try {
       await createProduct({
-        barcode:       phase.barcode,
-        name:          manualName.trim(),
-        brand:         null,
-        category_id:   null,
-        unit_type:     'unit',
-        net_content:   null,
-        image_url:     null,
+        barcode:         phase.barcode,
+        name:            manualName.trim(),
+        unit_type:       'unit',
         price,
-        cost_price:    null,
-        initial_stock: qty,
+        initial_stock:   qty,
         stock_min_alert: 5,
       });
 
