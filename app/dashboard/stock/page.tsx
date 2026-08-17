@@ -1,68 +1,84 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
-import { AlertCircle, CheckCircle2, Loader2, Package, Plus, Search, X } from 'lucide-react';
+import {
+  AlertCircle, CheckCircle2, Loader2, Package, RotateCcw,
+} from 'lucide-react';
 
+import { BarcodeInput } from '@/components/products/BarcodeInput';
+import { NewProductModal } from '@/components/stock/NewProductModal';
 import { useAuth } from '@/hooks/useAuth';
+import { useProducts } from '@/hooks/useProducts';
 import { createClient } from '@/lib/supabase/client';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { EstablishmentProductDetail } from '@/types/database';
+
+type State =
+  | { phase: 'idle' }
+  | { phase: 'searching' }
+  | { phase: 'found'; product: EstablishmentProductDetail }
+  | { phase: 'saved'; product: EstablishmentProductDetail; added: number }
+  | { phase: 'not_found'; barcode: string };
 
 export default function CargaStockPage() {
   const { user } = useAuth();
   const establishmentId = user?.establishment_id ?? null;
   const supabase = useMemo(() => createClient(), []);
+  const { searchByBarcode } = useProducts(establishmentId);
 
-  const [products,    setProducts]    = useState<EstablishmentProductDetail[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [search,      setSearch]      = useState('');
-  const [activeEpId,  setActiveEpId]  = useState<string | null>(null);
-  const [qty,         setQty]         = useState('');
-  const [notes,       setNotes]       = useState('');
-  const [saving,      setSaving]      = useState(false);
-  const [justSavedId, setJustSavedId] = useState<string | null>(null);
-  const [formError,   setFormError]   = useState<string | null>(null);
+  const [state,      setState]      = useState<State>({ phase: 'idle' });
+  const [qty,        setQty]        = useState('');
+  const [notes,      setNotes]      = useState('');
+  const [saving,     setSaving]     = useState(false);
+  const [formError,  setFormError]  = useState<string | null>(null);
+  const [modalOpen,  setModalOpen]  = useState(false);
 
-  useEffect(() => {
-    if (!establishmentId) { setLoading(false); return; }
-    supabase
-      .from('establishment_products_detail')
-      .select('*')
-      .eq('establishment_id', establishmentId)
-      .eq('is_active', true)
-      .order('name')
-      .then(({ data }) => {
-        setProducts((data as EstablishmentProductDetail[]) ?? []);
-        setLoading(false);
-      });
-  }, [establishmentId, supabase]);
+  // ── Escaneo ───────────────────────────────────────────────
+  const handleScan = useCallback(
+    (barcode: string) => {
+      void (async () => {
+        setState({ phase: 'searching' });
+        setQty('');
+        setNotes('');
+        setFormError(null);
+        try {
+          const found = await searchByBarcode(barcode);
+          if (found) {
+            setState({ phase: 'found', product: found });
+          } else {
+            setState({ phase: 'not_found', barcode });
+            setModalOpen(true);
+          }
+        } catch {
+          setState({ phase: 'idle' });
+        }
+      })();
+    },
+    [searchByBarcode]
+  );
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return products;
-    const q = search.toLowerCase();
-    return products.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      (p.brand    ?? '').toLowerCase().includes(q) ||
-      (p.barcode  ?? '').includes(q)
-    );
-  }, [products, search]);
+  // ── Después de crear un producto nuevo ────────────────────
+  const handleProductCreated = useCallback(
+    (barcode: string) => {
+      setModalOpen(false);
+      void (async () => {
+        setState({ phase: 'searching' });
+        try {
+          const found = await searchByBarcode(barcode);
+          if (found) setState({ phase: 'found', product: found });
+          else        setState({ phase: 'idle' });
+        } catch {
+          setState({ phase: 'idle' });
+        }
+      })();
+    },
+    [searchByBarcode]
+  );
 
-  function openForm(epId: string) {
-    setActiveEpId(epId);
-    setQty('');
-    setNotes('');
-    setFormError(null);
-  }
-
-  function closeForm() {
-    setActiveEpId(null);
-    setQty('');
-    setNotes('');
-    setFormError(null);
-  }
-
-  async function handleConfirm(ep: EstablishmentProductDetail) {
+  // ── Confirmar carga de stock ──────────────────────────────
+  async function handleConfirm() {
+    if (state.phase !== 'found') return;
     const amount = parseInt(qty, 10);
     if (isNaN(amount) || amount <= 0) { setFormError('Ingresá una cantidad válida'); return; }
     if (!user) return;
@@ -71,6 +87,7 @@ export default function CargaStockPage() {
     setFormError(null);
 
     try {
+      const ep       = state.product;
       const prevStock = ep.stock;
       const newStock  = prevStock + amount;
 
@@ -91,10 +108,7 @@ export default function CargaStockPage() {
         created_by:     user.id,
       });
 
-      setProducts(prev => prev.map(p => p.id === ep.id ? { ...p, stock: newStock } : p));
-      setJustSavedId(ep.id);
-      setTimeout(() => setJustSavedId(null), 3000);
-      closeForm();
+      setState({ phase: 'saved', product: { ...ep, stock: newStock }, added: amount });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Error al guardar');
     } finally {
@@ -102,168 +116,176 @@ export default function CargaStockPage() {
     }
   }
 
+  function reset() {
+    setState({ phase: 'idle' });
+    setQty('');
+    setNotes('');
+    setFormError(null);
+  }
+
+  // ── Render ────────────────────────────────────────────────
+  const notFoundBarcode = state.phase === 'not_found' ? state.barcode : null;
+
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
+    <>
+      <div className="mx-auto flex max-w-xl flex-col gap-6">
 
-      {/* Header */}
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <Package className="h-6 w-6 text-primary-700" />
-          Carga de stock
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Agregá unidades al stock de cada producto con una descripción opcional.
-        </p>
-      </div>
+        {/* Header */}
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+            <Package className="h-6 w-6 text-primary-700" />
+            Carga de stock
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Escaneá el código de barras de un producto para cargar o crear stock.
+          </p>
+        </div>
 
-      {/* Buscador */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar por nombre, marca o código de barras…"
-          className="block w-full rounded-xl border border-slate-200 bg-white
-                     py-3 pl-9 pr-10 text-sm focus:border-primary-700 focus:outline-none"
-        />
-        {search && (
-          <button onClick={() => setSearch('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
-            <X className="h-4 w-4" />
-          </button>
+        {/* Scanner */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Escanear producto
+          </p>
+          <BarcodeInput
+            onDetect={handleScan}
+            isSearching={state.phase === 'searching'}
+            disabled={saving}
+            placeholder="Código de barras del producto…"
+          />
+        </div>
+
+        {/* Estado: buscando */}
+        {state.phase === 'searching' && (
+          <div className="flex items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white py-8 shadow-sm">
+            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            <span className="text-sm text-slate-500">Buscando producto…</span>
+          </div>
+        )}
+
+        {/* Estado: producto encontrado — formulario de carga */}
+        {state.phase === 'found' && (
+          <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+
+            {/* Info del producto */}
+            <div className="flex items-start gap-3 rounded-lg bg-primary-50 px-4 py-3">
+              <Package className="mt-0.5 h-5 w-5 shrink-0 text-primary-600" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-primary-900">{state.product.name}</p>
+                {state.product.brand && (
+                  <p className="text-xs text-primary-600">{state.product.brand}</p>
+                )}
+                <div className="mt-1 flex items-center gap-3 text-xs text-primary-700">
+                  <span>Stock actual: <strong>{state.product.stock}</strong></span>
+                  <span>·</span>
+                  <span>{formatCurrency(state.product.price)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Cantidad */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-600">Cantidad a agregar *</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                value={qty}
+                onChange={e => setQty(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') void handleConfirm(); }}
+                placeholder="Ej: 10"
+                autoFocus
+                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5
+                           text-sm focus:border-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-100"
+              />
+            </div>
+
+            {/* Descripción */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-slate-600">
+                Descripción <span className="font-normal text-slate-400">(opcional)</span>
+              </label>
+              <input
+                type="text"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Ej: Recibido de proveedor, ajuste manual…"
+                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5
+                           text-sm focus:border-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-100"
+              />
+            </div>
+
+            {/* Error */}
+            {formError && (
+              <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {formError}
+              </div>
+            )}
+
+            {/* Acciones */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleConfirm}
+                disabled={saving || !qty}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg
+                           bg-primary-700 py-2.5 text-sm font-semibold text-white
+                           disabled:opacity-50"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {saving ? 'Guardando…' : 'Confirmar carga'}
+              </button>
+              <button
+                onClick={reset}
+                disabled={saving}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white
+                           px-4 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Estado: guardado con éxito */}
+        {state.phase === 'saved' && (
+          <div className="flex flex-col gap-4 rounded-xl border border-green-200 bg-green-50 p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600" />
+              <div>
+                <p className="text-sm font-semibold text-green-900">Stock cargado</p>
+                <p className="mt-0.5 text-xs text-green-700">
+                  Se agregaron <strong>{state.added}</strong> unidades a{' '}
+                  <strong>{state.product.name}</strong>.
+                  Stock nuevo: <strong>{state.product.stock}</strong>.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={reset}
+              className={cn(
+                'flex items-center justify-center gap-2 rounded-lg',
+                'border border-green-300 bg-white py-2.5 text-sm font-semibold text-green-700',
+                'hover:bg-green-50 active:bg-green-100'
+              )}
+            >
+              <RotateCcw className="h-4 w-4" />
+              Escanear otro producto
+            </button>
+          </div>
         )}
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-slate-200 py-14 text-center">
-          <Package className="h-10 w-10 text-slate-300" />
-          <p className="text-sm text-slate-400">
-            {products.length === 0 ? 'No hay productos registrados' : 'No se encontraron productos'}
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {filtered.map(ep => {
-            const isActive  = activeEpId === ep.id;
-            const justSaved = justSavedId === ep.id;
-            const isLow     = ep.stock <= ep.stock_min_alert;
-
-            return (
-              <div key={ep.id}
-                className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-              >
-                {/* Fila del producto */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">{ep.name}</p>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      {ep.brand && (
-                        <span className="text-xs text-slate-400">{ep.brand}</span>
-                      )}
-                      <span className={cn(
-                        'text-xs font-semibold',
-                        isLow ? 'text-red-600' : 'text-slate-500'
-                      )}>
-                        Stock: {ep.stock} {isLow && '⚠'}
-                      </span>
-                      <span className="text-xs text-slate-300">·</span>
-                      <span className="text-xs text-slate-400">{formatCurrency(ep.price)}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-2">
-                    {justSaved && (
-                      <CheckCircle2 className="h-5 w-5 text-green-500" />
-                    )}
-                    <button
-                      onClick={() => isActive ? closeForm() : openForm(ep.id)}
-                      className={cn(
-                        'flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
-                        isActive
-                          ? 'bg-slate-100 text-slate-500'
-                          : 'bg-primary-700 text-white active:bg-primary-800'
-                      )}
-                    >
-                      {isActive ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Formulario inline */}
-                {isActive && (
-                  <div className="border-t border-slate-100 bg-slate-50 px-4 py-4">
-                    <div className="flex flex-col gap-3">
-
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-slate-600">
-                          Cantidad a agregar *
-                        </label>
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          min="1"
-                          value={qty}
-                          onChange={e => setQty(e.target.value)}
-                          placeholder="Ej: 10"
-                          autoFocus
-                          className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5
-                                     text-sm focus:border-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-100"
-                        />
-                      </div>
-
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold text-slate-600">
-                          Descripción <span className="font-normal text-slate-400">(opcional)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={notes}
-                          onChange={e => setNotes(e.target.value)}
-                          placeholder="Ej: Recibido de proveedor, ajuste manual…"
-                          className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5
-                                     text-sm focus:border-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-100"
-                        />
-                      </div>
-
-                      {formError && (
-                        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                          {formError}
-                        </div>
-                      )}
-
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleConfirm(ep)}
-                          disabled={saving || !qty}
-                          className="flex flex-1 items-center justify-center gap-2 rounded-lg
-                                     bg-primary-700 py-2.5 text-sm font-semibold text-white
-                                     disabled:opacity-50"
-                        >
-                          {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                          {saving ? 'Guardando…' : 'Confirmar carga'}
-                        </button>
-                        <button
-                          onClick={closeForm}
-                          disabled={saving}
-                          className="rounded-lg border border-slate-200 bg-white px-4 py-2.5
-                                     text-sm font-semibold text-slate-600 disabled:opacity-50"
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      {/* Modal: crear nuevo producto */}
+      {notFoundBarcode && establishmentId && (
+        <NewProductModal
+          isOpen={modalOpen}
+          onClose={() => { setModalOpen(false); setState({ phase: 'idle' }); }}
+          initialBarcode={notFoundBarcode}
+          establishmentId={establishmentId}
+          onCreated={handleProductCreated}
+        />
       )}
-    </div>
+    </>
   );
 }
