@@ -531,7 +531,7 @@ function RepartoPage() {
       return;
     }
 
-    // 2. No está local → buscar en Open Food Facts
+    // 2. No está local → buscar en Open Food Facts + Open Products Facts (limpieza, higiene, etc.)
     const external = await lookupBarcode(code.trim());
     setScanning(false);
 
