@@ -8,7 +8,7 @@ import { usePathname } from 'next/navigation';
 
 import {
   BoxesIcon, DollarSign, Home, Loader2, LogOut, Menu,
-  PackagePlus, Pencil, Receipt, RefreshCw, Settings, ShoppingCart,
+  Package, PackagePlus, Pencil, Receipt, RefreshCw, Settings, ShoppingCart,
   Smartphone, Truck, Users, X,
 } from 'lucide-react';
 
@@ -39,7 +39,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/dashboard',                    label: 'Inicio',        icon: Home,        roles: ['owner'], exact: true },
       { href: '/dashboard/productos',          label: 'Productos',     icon: BoxesIcon,   roles: ['owner', 'employee'] },
       { href: '/caja',                         label: 'Caja',          icon: ShoppingCart,roles: ['owner', 'cashier'] },
-      { href: '/empleados/ingreso-mercaderia', label: 'Stock', icon: PackagePlus, roles: ['owner', 'employee'] },
+      { href: '/empleados/ingreso-mercaderia', label: 'Stock',         icon: PackagePlus, roles: ['owner', 'employee'] },
+      { href: '/dashboard/stock',              label: 'Carga Stock',  icon: Package,     roles: ['owner', 'employee'] },
     ],
   },
   {

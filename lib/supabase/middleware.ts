@@ -13,6 +13,7 @@ const ROUTE_ROLES: Record<string, UserRole[]> = {
   '/dashboard/repartos':   ['owner', 'employee'],
   '/dashboard/clientes':   ['owner', 'employee'],
   '/dashboard/cobros':     ['owner', 'employee'],
+  '/dashboard/stock':      ['owner', 'employee'],
   '/dashboard': ['owner'],
   '/caja':      ['owner', 'cashier'],
   '/empleados': ['owner', 'employee'],
