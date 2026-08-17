@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
-import { Loader2, ShieldX } from 'lucide-react';
+import { ArrowLeft, Loader2, Search, ShieldX } from 'lucide-react';
 
 import { CajaItemList } from '@/components/caja/CajaItemList';
 import { CajaScanner } from '@/components/caja/CajaScanner';
@@ -12,7 +12,7 @@ import { TicketModal } from '@/components/caja/TicketModal';
 import { useAuth } from '@/hooks/useAuth';
 import { useCaja } from '@/hooks/useCaja';
 import { useThemeStore } from '@/store/themeStore';
-import { cn } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 import type { EstablishmentProductDetail } from '@/types/database';
 
 type ScanStatus = 'idle' | 'searching' | 'found' | 'not_found';
@@ -32,14 +32,20 @@ export default function CajaPage() {
     addByBarcode, searchByName, processSale, cancelSale, clearTicket,
   } = useCaja(establishmentId);
 
-  const [scanStatus, setScanStatus] = useState<ScanStatus>('idle');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [notFoundBarcode, setNotFoundBarcode] = useState('');
+  const [scanStatus,       setScanStatus]       = useState<ScanStatus>('idle');
+  const [searchOpen,       setSearchOpen]        = useState(false);
+  const [notFoundBarcode,  setNotFoundBarcode]   = useState('');
+  const [mobilePanelView,  setMobilePanelView]   = useState<'items' | 'payment'>('items');
+
+  // Volver a items cuando se cierra el ticket (venta completada)
+  useEffect(() => {
+    if (!ticket) setMobilePanelView('items');
+  }, [ticket]);
 
   // ── Clases por tema ───────────────────────────────────────
-  const d = cajaIsDark;
-  const border  = d ? 'border-gray-800'   : 'border-slate-200';
-  const panelBg = d ? 'bg-gray-950'       : 'bg-white';
+  const d       = cajaIsDark;
+  const border  = d ? 'border-gray-800'  : 'border-slate-200';
+  const panelBg = d ? 'bg-gray-950'      : 'bg-white';
   const btnCls  = d
     ? 'border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300'
     : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700';
@@ -91,10 +97,16 @@ export default function CajaPage() {
 
   return (
     <>
-      <div className="flex h-full">
+      <div className="flex h-full flex-col lg:flex-row">
 
-        {/* ═══ PANEL IZQUIERDO (60%) ════════════════════════════ */}
-        <div className={cn('flex w-[60%] flex-col border-r', border, panelBg)}>
+        {/* ═══ PANEL IZQUIERDO — items ═══════════════════════════ */}
+        <div className={cn(
+          'flex flex-col border-r',
+          border, panelBg,
+          'lg:w-[60%]',
+          // Mobile: full screen cuando estamos en items, oculto en payment
+          mobilePanelView === 'payment' ? 'hidden lg:flex' : 'flex flex-1 lg:flex-none'
+        )}>
 
           {/* Indicador de estado */}
           <div className={cn('flex items-center justify-between border-b px-4 py-2', border)}>
@@ -126,8 +138,8 @@ export default function CajaPage() {
             isDark={d}
           />
 
-          {/* Barra inferior */}
-          <div className={cn('flex items-center gap-2 border-t px-4 py-2.5', border)}>
+          {/* Barra inferior — desktop */}
+          <div className={cn('hidden lg:flex items-center gap-2 border-t px-4 py-2.5', border)}>
             {['+ Agregar sin código', 'Buscar por nombre'].map((label) => (
               <button
                 key={label}
@@ -138,10 +150,57 @@ export default function CajaPage() {
               </button>
             ))}
           </div>
+
+          {/* Barra inferior — mobile: total + botones */}
+          <div className={cn('flex items-center gap-3 border-t px-4 py-3 lg:hidden', border, panelBg)}>
+            <button
+              onClick={() => { setNotFoundBarcode(''); setSearchOpen(true); }}
+              className={cn(
+                'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-colors',
+                btnCls
+              )}
+            >
+              <Search className="h-5 w-5" />
+            </button>
+
+            <div className="flex-1 min-w-0">
+              <p className={cn('text-xs tabular-nums', d ? 'text-gray-500' : 'text-slate-400')}>
+                {items.length} {items.length === 1 ? 'item' : 'items'}
+              </p>
+              <p className={cn('text-lg font-black tabular-nums leading-tight', d ? 'text-white' : 'text-slate-900')}>
+                {formatCurrency(total)}
+              </p>
+            </div>
+
+            <button
+              onClick={() => setMobilePanelView('payment')}
+              disabled={items.length === 0}
+              className="rounded-xl bg-accent-600 px-6 py-3 text-base font-black uppercase tracking-wide
+                         text-white shadow-lg shadow-green-900/30 disabled:opacity-40 active:scale-[0.97]"
+            >
+              Cobrar
+            </button>
+          </div>
         </div>
 
-        {/* ═══ PANEL DERECHO (40%) ══════════════════════════════ */}
-        <div className="flex w-[40%] flex-col">
+        {/* ═══ PANEL DERECHO — pago ══════════════════════════════ */}
+        <div className={cn(
+          'flex flex-col',
+          'lg:w-[40%]',
+          mobilePanelView === 'items' ? 'hidden lg:flex' : 'flex flex-1 lg:flex-none'
+        )}>
+
+          {/* Botón volver — solo mobile */}
+          <div className={cn('flex items-center border-b px-4 py-3 lg:hidden', border, d ? 'bg-gray-950' : 'bg-white')}>
+            <button
+              onClick={() => setMobilePanelView('items')}
+              className={cn('flex items-center gap-2 text-sm font-semibold', d ? 'text-gray-400 hover:text-gray-200' : 'text-slate-500 hover:text-slate-800')}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Volver a items
+            </button>
+          </div>
+
           <PaymentPanel
             subtotal={subtotal}
             total={total}
